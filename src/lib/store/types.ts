@@ -78,10 +78,18 @@ export type InboxMessage = {
   readAt?: string;
 };
 
+export type WorkspaceSettings = {
+  /** E.164 direct line — Twilio inbound voice dials this (callbacks). */
+  callForwardToE164?: string;
+  /** Seconds to ring the direct line before giving up */
+  callForwardTimeoutSec?: number;
+};
+
 export type StoreShape = {
   clients: ClientRecord[];
   apiKeys: ApiKeyRecord[];
   campaigns: CampaignRecord[];
   leads: LeadRecord[];
   inbox: InboxMessage[];
+  settings: WorkspaceSettings;
 };

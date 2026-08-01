@@ -36,12 +36,26 @@ const defaultStore = (): StoreShape => ({
       createdAt: new Date().toISOString(),
     },
   ],
+  settings: {
+    callForwardTimeoutSec: 30,
+  },
 });
 
 async function readStore(): Promise<StoreShape> {
   try {
     const raw = await readFile(STORE_PATH, "utf8");
-    return JSON.parse(raw) as StoreShape;
+    const parsed = JSON.parse(raw) as Partial<StoreShape>;
+    const base = defaultStore();
+    return {
+      ...base,
+      ...parsed,
+      settings: { ...base.settings, ...parsed.settings },
+      clients: parsed.clients ?? base.clients,
+      apiKeys: parsed.apiKeys ?? base.apiKeys,
+      campaigns: parsed.campaigns ?? base.campaigns,
+      leads: parsed.leads ?? base.leads,
+      inbox: parsed.inbox ?? base.inbox,
+    };
   } catch {
     const fresh = defaultStore();
     await writeStore(fresh);
@@ -226,4 +240,45 @@ export async function addInboxMessage(
   store.inbox.push(row);
   await writeStore(store);
   return row;
+}
+
+export async function getSettings() {
+  return (await readStore()).settings;
+}
+
+export async function updateSettings(
+  patch: Partial<import("./types").WorkspaceSettings>,
+) {
+  const store = await readStore();
+  const next = { ...store.settings, ...patch };
+  if (patch.callForwardToE164 === "" || patch.callForwardToE164 === undefined) {
+    if ("callForwardToE164" in patch) {
+      delete next.callForwardToE164;
+    }
+  }
+  store.settings = next;
+  await writeStore(store);
+  return store.settings;
+}
+
+/** Resolve forward-to number: env wins, then workspace settings. */
+export async function resolveCallForwardTo(): Promise<{
+  e164: string | null;
+  timeoutSec: number;
+  source: "env" | "settings" | "none";
+}> {
+  const settings = await getSettings();
+  const timeoutSec = settings.callForwardTimeoutSec ?? 30;
+  const fromEnv = process.env.CALL_FORWARD_TO_E164?.trim();
+  if (fromEnv) {
+    return { e164: fromEnv, timeoutSec, source: "env" };
+  }
+  if (settings.callForwardToE164) {
+    return {
+      e164: settings.callForwardToE164,
+      timeoutSec,
+      source: "settings",
+    };
+  }
+  return { e164: null, timeoutSec, source: "none" };
 }

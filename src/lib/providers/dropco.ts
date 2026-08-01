@@ -1,21 +1,21 @@
 import type { DeliveryResult, RvmDeliveryProvider, SendRvmInput } from "./types";
 
-/**
- * Drop.co Customer API — pay-as-you-go RVM with modern REST + webhooks.
- * Docs: https://apidocs.drop.co/
- *
- * Flow for a sequencer:
- * 1. VMDropCreate once per campaign/audio (returns campaign token)
- * 2. Post records into that campaign per lead (this adapter)
- *
- * This stub posts a single record; campaignToken must be provisioned ahead of time
- * (or via a separate createCampaign helper).
- */
-export function createDropCoProvider(config: {
+export type DropCoConfig = {
   apiKey?: string;
+  /** Existing campaign token — optional if createCampaign is used first */
   campaignToken?: string;
   baseUrl?: string;
-}): RvmDeliveryProvider {
+};
+
+/**
+ * Drop.co Customer API — pay-as-you-go RVM.
+ * Docs: https://apidocs.drop.co/
+ *
+ * Sequencer flow:
+ * 1. createDropCoCampaign(audioUrl) once per static script → campaign token
+ * 2. provider.send() posts each lead into that campaign
+ */
+export function createDropCoProvider(config: DropCoConfig): RvmDeliveryProvider {
   const baseUrl = config.baseUrl ?? "https://customerapi.drop.co";
 
   return {
@@ -27,7 +27,7 @@ export function createDropCoProvider(config: {
           ok: false,
           status: "failed",
           errorCode: "DROP_CO_NOT_CONFIGURED",
-          errorDetail: "Set DROP_CO_API_KEY + DROP_CO_CAMPAIGN_TOKEN",
+          errorDetail: "Set DROP_CO_API_KEY + DROP_CO_CAMPAIGN_TOKEN (or create campaign first)",
         };
       }
 
@@ -36,7 +36,6 @@ export function createDropCoProvider(config: {
         key: config.apiKey,
         token: config.campaignToken,
         phone,
-        // Optional per-record audio override
         fileurl: input.audioUrl,
       });
 
@@ -56,9 +55,7 @@ export function createDropCoProvider(config: {
       }
 
       const activityToken =
-        raw &&
-        typeof raw === "object" &&
-        "ActivityToken" in raw
+        raw && typeof raw === "object" && "ActivityToken" in raw
           ? String((raw as { ActivityToken: unknown }).ActivityToken)
           : undefined;
 
@@ -71,4 +68,53 @@ export function createDropCoProvider(config: {
       };
     },
   };
+}
+
+/** Create a Drop.co VMDrop campaign from a hosted audio URL. */
+export async function createDropCoCampaign(input: {
+  apiKey: string;
+  name: string;
+  audioUrl: string;
+  forwardingNumber?: string;
+  baseUrl?: string;
+}): Promise<{ campaignToken: string; raw: unknown }> {
+  const baseUrl = input.baseUrl ?? "https://customerapi.drop.co";
+  const qs = new URLSearchParams({
+    key: input.apiKey,
+    VMDropName: input.name,
+    VMDropFileUrl: input.audioUrl,
+    EnableMissedCall: "false",
+    // Immediate transfer if forwarding number provided
+    CallbackForwardingType: input.forwardingNumber ? "1" : "3",
+  });
+  if (input.forwardingNumber) {
+    qs.set(
+      "ForwardingNumber",
+      input.forwardingNumber.replace(/\D/g, "").replace(/^1/, ""),
+    );
+  }
+
+  const res = await fetch(`${baseUrl}/VMDropCreate/?${qs.toString()}`, {
+    method: "POST",
+  });
+  const raw: unknown = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(`Drop.co VMDropCreate failed HTTP ${res.status}`);
+  }
+
+  const token =
+    raw && typeof raw === "object"
+      ? String(
+          (raw as Record<string, unknown>).CampaignToken ??
+            (raw as Record<string, unknown>).Token ??
+            (raw as Record<string, unknown>).campaignToken ??
+            "",
+        )
+      : "";
+
+  if (!token) {
+    throw new Error("Drop.co VMDropCreate returned no campaign token");
+  }
+
+  return { campaignToken: token, raw };
 }

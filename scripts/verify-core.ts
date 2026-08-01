@@ -10,6 +10,10 @@ import { evaluateCompliance, renderScript } from "../src/lib/compliance/gates";
 import { evaluateLineHealth } from "../src/lib/reputation/evaluate";
 import { estimateRun, DELIVERY_SCENARIOS, TTS_SCENARIOS } from "../src/lib/cost/estimate";
 import { mockRvmProvider } from "../src/lib/providers/mock-rvm";
+import { timezoneFromPhone } from "../src/lib/timezone/from-phone";
+import { evaluateSendWindow } from "../src/lib/sequencer/send-window";
+import { mockDncScrubber, scrubWithAll } from "../src/lib/dnc/scrub";
+import { runAttempt } from "../src/lib/sequencer/run-attempt";
 
 // Warmup ramp is gradual and hits target near minWarmDays
 const schedule = buildWarmupSchedule();
@@ -155,6 +159,11 @@ assert.equal(
   true,
 );
 
+// Phone → IANA timezone (Google libphonenumber prefix map)
+assert.equal(timezoneFromPhone("+14155550123"), "America/Los_Angeles");
+assert.equal(timezoneFromPhone("+12125550123"), "America/New_York");
+assert.equal(timezoneFromPhone("+16025550123"), "America/Phoenix");
+
 async function main() {
   const ok = await mockRvmProvider.send({
     toE164: "+15551234560",
@@ -171,6 +180,114 @@ async function main() {
     foreignId: "t2",
   });
   assert.equal(rej.status, "rejected");
+
+  // Local-time window: SF number at 8am PT should be outside 9–20 window
+  const outside = evaluateSendWindow({
+    phoneE164: "+14155550123",
+    dnc: false,
+    consentStatus: "UNKNOWN",
+    schedule: {
+      sendWindowStart: 9,
+      sendWindowEnd: 20,
+      sendDays: [0, 1, 2, 3, 4, 5, 6],
+    },
+    // 2026-08-03 15:00 UTC = 8:00 America/Los_Angeles
+    now: new Date("2026-08-03T15:00:00.000Z"),
+  });
+  assert.equal(outside.allow, false);
+  if (!outside.allow) assert.equal(outside.reason, "OUTSIDE_SEND_WINDOW");
+
+  const inside = evaluateSendWindow({
+    phoneE164: "+14155550123",
+    dnc: false,
+    consentStatus: "UNKNOWN",
+    schedule: {
+      sendWindowStart: 9,
+      sendWindowEnd: 20,
+      sendDays: [0, 1, 2, 3, 4, 5, 6],
+    },
+    // 2026-08-03 18:00 UTC = 11:00 PT
+    now: new Date("2026-08-03T18:00:00.000Z"),
+  });
+  assert.equal(inside.allow, true);
+
+  // DNC mock scrub
+  const scrub = await scrubWithAll([mockDncScrubber], [
+    "+14155550000",
+    "+14155550123",
+  ]);
+  assert.equal(scrub[0]?.blocked, true);
+  assert.equal(scrub[1]?.blocked, false);
+
+  // Full attempt: scrub blocks ending 0000
+  const blockedAttempt = await runAttempt({
+    lead: {
+      id: "l1",
+      phoneE164: "+14155550000",
+      consentStatus: "UNKNOWN",
+      dnc: false,
+    },
+    campaign: {
+      id: "c1",
+      scriptTemplate: "Hey {{first_name}}",
+      audioUrl: "https://example.com/a.mp3",
+      schedule: {
+        sendWindowStart: 0,
+        sendWindowEnd: 24,
+        sendDays: [0, 1, 2, 3, 4, 5, 6],
+      },
+    },
+    lines: [
+      {
+        id: "ln",
+        e164: "+14155550999",
+        areaCode: "415",
+        status: "HEALTHY",
+        dailyCap: 80,
+        sentToday: 0,
+        reputationLabel: "UNFLAGGED",
+      },
+    ],
+    dncScrubbers: [mockDncScrubber],
+    delivery: mockRvmProvider,
+    now: new Date("2026-08-03T18:00:00.000Z"),
+  });
+  assert.equal(blockedAttempt.status, "SKIPPED");
+
+  const sentAttempt = await runAttempt({
+    lead: {
+      id: "l2",
+      phoneE164: "+14155550123",
+      firstName: "Alex",
+      consentStatus: "UNKNOWN",
+      dnc: false,
+    },
+    campaign: {
+      id: "c1",
+      scriptTemplate: "Hey {{first_name}}",
+      audioUrl: "https://example.com/a.mp3",
+      schedule: {
+        sendWindowStart: 9,
+        sendWindowEnd: 20,
+        sendDays: [0, 1, 2, 3, 4, 5, 6],
+      },
+    },
+    lines: [
+      {
+        id: "ln",
+        e164: "+14155550999",
+        areaCode: "415",
+        status: "HEALTHY",
+        dailyCap: 80,
+        sentToday: 0,
+        reputationLabel: "UNFLAGGED",
+      },
+    ],
+    dncScrubbers: [mockDncScrubber],
+    delivery: mockRvmProvider,
+    now: new Date("2026-08-03T18:00:00.000Z"),
+  });
+  assert.equal(sentAttempt.status, "SENT");
 
   console.log("verify-core: all assertions passed");
 }

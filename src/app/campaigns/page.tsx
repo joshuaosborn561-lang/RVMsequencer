@@ -5,7 +5,7 @@ export default function CampaignsPage() {
   return (
     <Shell
       title="Campaigns"
-      subtitle="Sequences of RVM steps with delays, stop-on-callback, consent gates, timezone windows, and automatic line rotation across the pool."
+      subtitle="Smartlead-style schedules in the recipient’s local time (from phone NPA), DNC scrub before every send, Drop.co deposit, ElevenLabs audio generated once."
     >
       <div className="grid gap-4">
         {demoCampaigns.map((c) => (
@@ -67,23 +67,36 @@ export default function CampaignsPage() {
 
       <div className="panel mt-6 rounded-xl p-5">
         <h2 className="font-[family-name:var(--font-display)] text-lg">
-          Sequencer behavior (v1 design)
+          Sequencer tick (wired)
         </h2>
-        <ul className="mt-3 space-y-2 text-sm text-[var(--muted)]">
+        <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-[var(--muted)]">
           <li>
-            · Pick next enrollment due (`nextRunAt`), run compliance gate (consent / DNC /
-            8–9 style window in recipient TZ).
+            <code className="font-[family-name:var(--font-mono)] text-[var(--ink)]">
+              POST /api/scrub
+            </code>{" "}
+            — internal list + The DNC Project (when token set)
           </li>
           <li>
-            · `pickLine()` for local presence + lowest utilization + healthy reputation.
+            Recipient local clock from phone NPA (
+            <code className="font-[family-name:var(--font-mono)] text-[var(--ink)]">
+              GET /api/timezone?phone=
+            </code>
+            ) — send days + hours like Smartlead
+          </li>
+          <li>Pick Twilio line (cap / local presence / health)</li>
+          <li>
+            <code className="font-[family-name:var(--font-mono)] text-[var(--ink)]">
+              POST /api/voice/render
+            </code>{" "}
+            — ElevenLabs Multilingual once, cached by script hash
           </li>
           <li>
-            · Render script (`{"{{first_name}}"}`) → TTS or static asset → provider.send().
+            <code className="font-[family-name:var(--font-mono)] text-[var(--ink)]">
+              POST /api/sequencer/tick
+            </code>{" "}
+            — Drop.co post record
           </li>
-          <li>
-            · Increment line `sentToday`; advance step or complete; stop on callback / opt-out.
-          </li>
-        </ul>
+        </ol>
       </div>
     </Shell>
   );

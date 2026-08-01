@@ -24,6 +24,10 @@
 .DS_Store
 *.pem
 
+# generated ElevenLabs audio cache (keep folder)
+/public/audio/*
+!/public/audio/.gitkeep
+
 # debug
 npm-debug.log*
 yarn-debug.log*

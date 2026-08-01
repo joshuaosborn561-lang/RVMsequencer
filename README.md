@@ -25,28 +25,31 @@ Tools like [Topa.io](https://topa.io) are excellent RVM channel bolt-ons (AI voi
 ```bash
 pnpm install
 cp .env.example .env
+# fill: DROP_CO_*, ELEVENLABS_*, DNC_PROJECT_API_TOKEN, NEXT_PUBLIC_APP_URL
 pnpm dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
 
 ```bash
-pnpm verify   # runs core engine assertions (no DB required)
+pnpm verify   # warmup, timezone windows, DNC, sequencer tick
 pnpm build
 ```
 
 ## Architecture
 
 ```
-Campaign sequencer
-  → compliance gates (consent / DNC / window)
+POST /api/sequencer/tick
+  → DNC scrub (internal + The DNC Project)
+  → recipient-local send window (phone NPA → IANA TZ)
   → line picker (cap + local presence + health)
-  → voice render (Cartesia / ElevenLabs / upload)
-  → delivery adapter (RVM provider or Twilio AMD)
-  → webhooks → reputation / quarantine
+  → ElevenLabs audio (generate once, cache by hash)
+  → Drop.co VMDropPostRecords
 ```
 
-Full research, cost models, warmup schedule, and open product decisions: **`docs/RESEARCH.md`**.
+Also: `POST /api/scrub`, `POST /api/voice/render`, `GET /api/timezone?phone=`
+
+Full research: **`docs/RESEARCH.md`**.
 
 ## Compliance
 

@@ -2,22 +2,22 @@ import { Shell } from "@/components/shell";
 
 const voices = [
   {
-    name: "Stock — Mira",
-    provider: "CARTESIA",
-    kind: "Stock",
-    note: "Cheap bulk; good default for static body audio.",
-  },
-  {
-    name: "Clone — Founder",
+    name: "Clone — you (PVC)",
     provider: "ELEVENLABS",
-    kind: "Instant clone",
-    note: "Use for Part-2 body or full personalized scripts when quality matters.",
+    kind: "Professional clone",
+    note: "Highest quality path. Creator+ plan unlocks PVC; render the campaign script once (~pennies), reuse forever.",
   },
   {
-    name: "Upload — Live take",
+    name: "Stock — Multilingual v2/v3",
+    provider: "ELEVENLABS",
+    kind: "Highest quality TTS",
+    note: "~$0.10/1k chars. A 40s script ≈ $0.04 one time. Prefer this over Flash when audio is static.",
+  },
+  {
+    name: "Upload — live take",
     provider: "UPLOAD",
     kind: "Human WAV",
-    note: "Best deliverability optics when you can record once and reuse.",
+    note: "Still valid if you record yourself. Zero TTS spend after upload.",
   },
 ];
 
@@ -25,7 +25,7 @@ export default function VoicesPage() {
   return (
     <Shell
       title="Voice engine"
-      subtitle="Clone or stock TTS for RVM audio. Cost tip: Topa-style Part1 (short personalized) + Part2 (shared body) beats full per-lead synthesis for the $100/2k target."
+      subtitle="You are not regenerating every drop. Generate once at max quality, host the file, pass the same URL to Drop.co / Slybroadcast."
     >
       <div className="grid gap-4 md:grid-cols-3">
         {voices.map((v) => (
@@ -43,25 +43,12 @@ export default function VoicesPage() {
       </div>
 
       <div className="panel mt-6 rounded-xl p-5 text-sm leading-relaxed">
-        <p className="font-medium">Recommended stack</p>
-        <ul className="mt-3 space-y-2 text-[var(--muted)]">
-          <li>
-            · <strong className="text-[var(--ink)]">Cartesia</strong> for volume + instant
-            clone economics (~$0.039/1k chars on Startup).
-          </li>
-          <li>
-            · <strong className="text-[var(--ink)]">ElevenLabs Flash</strong> when you need
-            punchier naturalism (~$0.05/1k chars).
-          </li>
-          <li>
-            · Prefer <strong className="text-[var(--ink)]">static reuse</strong> or splice
-            personalization so TTS is not the budget killer.
-          </li>
-          <li>
-            · Provider-bundled AI (Topa ~2.5¢ all-in) is the competitive floor to beat with
-            BYOC + own TTS.
-          </li>
-        </ul>
+        <p className="font-medium">Cost reality</p>
+        <p className="mt-2 text-[var(--muted)]">
+          Deposit dominates the bill (~$0.05 × 2,000 = $100 on Drop.co). One ElevenLabs
+          Multilingual render is noise. Only flip on per-lead personalization later if
+          callback lift pays for it.
+        </p>
       </div>
     </Shell>
   );

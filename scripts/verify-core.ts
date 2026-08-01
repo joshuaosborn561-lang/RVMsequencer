@@ -110,25 +110,27 @@ const burned = evaluateLineHealth({
 });
 assert.equal(burned.action, "quarantine");
 
-// Cost: Slybroadcast 2k monthly and LeadsRain static under $100;
-// full personalized Eleven multilingual on top of $0.05 deposit often is not
-const sly = estimateRun({
+// PAYG Drop.co + static reuse = exactly $100 for 2k
+const dropco = estimateRun({
   drops: 2000,
-  delivery: DELIVERY_SCENARIOS.find((d) => d.id === "slybroadcast_2k_monthly")!,
+  delivery: DELIVERY_SCENARIOS.find((d) => d.id === "dropco_simple")!,
   tts: TTS_SCENARIOS.find((t) => t.id === "static_reuse")!,
   personalizedFraction: 0,
 });
-assert.equal(sly.under100, true);
-assert.equal(sly.totalUsd, 100);
+assert.equal(dropco.under100, true);
+assert.equal(dropco.totalUsd, 100);
 
-const leadsrain = estimateRun({
+// One-shot high-quality TTS is noise (~$0.04) if not personalized per lead
+const once = estimateRun({
   drops: 2000,
-  delivery: DELIVERY_SCENARIOS.find((d) => d.id === "leadsrain_static")!,
-  tts: TTS_SCENARIOS.find((t) => t.id === "static_reuse")!,
-  personalizedFraction: 0,
+  delivery: DELIVERY_SCENARIOS.find((d) => d.id === "dropco_simple")!,
+  tts: TTS_SCENARIOS.find((t) => t.id === "eleven_multi")!,
+  personalizedFraction: 0, // generate once → amortized ~0 across 2k in this model
+  charsPerMessage: 400,
 });
-assert.equal(leadsrain.under100, true);
+assert.equal(once.under100, true);
 
+// Regenerating Multilingual per lead on $0.05 deposit breaks $100
 const expensive = estimateRun({
   drops: 2000,
   delivery: DELIVERY_SCENARIOS.find((d) => d.id === "dropco_simple")!,
@@ -137,6 +139,21 @@ const expensive = estimateRun({
   charsPerMessage: 400,
 });
 assert.equal(expensive.under100, false);
+
+// Soft consent: requireConsent=false allows UNKNOWN
+assert.equal(
+  evaluateCompliance({
+    consentStatus: "UNKNOWN",
+    dnc: false,
+    requireConsent: false,
+    localHour: 10,
+    sendWindowStart: 9,
+    sendWindowEnd: 20,
+    localDayOfWeek: 2,
+    sendDays: [1, 2, 3, 4, 5],
+  }).allow,
+  true,
+);
 
 async function main() {
   const ok = await mockRvmProvider.send({

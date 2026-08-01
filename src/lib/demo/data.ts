@@ -83,7 +83,7 @@ export const demoCampaigns = [
     enrolled: 1840,
     sentToday: 126,
     deliveredToday: 101,
-    provider: "SLYBROADCAST",
+    provider: "DROP_CO",
     mode: "RVM_PROVIDER",
   },
   {
@@ -93,7 +93,7 @@ export const demoCampaigns = [
     enrolled: 420,
     sentToday: 0,
     deliveredToday: 0,
-    provider: "DROP_CO",
+    provider: "SLYBROADCAST",
     mode: "RVM_PROVIDER",
   },
 ];
@@ -102,12 +102,11 @@ export const warmupSchedule = buildWarmupSchedule();
 
 /** Prefer API-cheap providers in the overview table (skip Cowboy noise). */
 const OVERVIEW_DELIVERY_IDS = [
-  "slybroadcast_2k_monthly",
   "dropco_simple",
-  "leadsrain_static",
-  "topa_ai",
   "slybroadcast_payg_5k",
-  "twilio_amd",
+  "leadsrain_static",
+  "slybroadcast_2k_monthly",
+  "topa_ai",
 ];
 
 export const costMatrix = DELIVERY_SCENARIOS.filter((d) =>

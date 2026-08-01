@@ -31,8 +31,9 @@ export type ComplianceDecision =
     };
 
 /**
- * Hard gates before queueing an RVM.
- * FCC 22-85: ringless voicemail to wireless is a TCPA "call" requiring prior express consent.
+ * Gates before queueing an RVM.
+ * DNC / opt-out / send windows are hard.
+ * Consent is optional (requireConsent=false by default) for cold-call / grey-area posture.
  */
 export function evaluateCompliance(input: ComplianceInput): ComplianceDecision {
   if (input.dnc) return { allow: false, reason: "DNC" };

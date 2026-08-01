@@ -43,7 +43,7 @@ Where it gets grey (and why operators disagree):
 - Enforcement and private TCPA litigation risk are uneven; some businesses treat it as grey and accept risk.
 - Statutory damages commonly cited at **$500–$1,500 per violation** when plaintiffs win.
 
-Dropseq defaults to consent/DNC/timezone gates as product safety rails. Softening those gates is an explicit product decision, not a research conclusion that “there is no law.”
+Operator posture in this project: treat RVM more like cold-call risk (grey / uneven enforcement) than email-style 1:1 written consent. Dropseq keeps **DNC + send-window** hard gates; **consent is warn/soft** by default so the sequencer can run cold lists. That is a product choice, not legal advice.
 
 ---
 
@@ -70,16 +70,16 @@ US local outbound ~**$0.014/min** + AMD **$0.0075/answered call**. A ~45–90s a
 - Humans answered → hangup or talk (compliance + reputation).
 - Voicemail hit rate is not 100%.
 
-### AI voice generation (if DIY TTS)
+### AI voice — generate once, reuse (recommended)
 
-Assume ~30–45s script ≈ **300–500 characters**.
+If you are **not** regenerating per lead, TTS cost is negligible vs deposit:
 
-| TTS | Rate | Cost / personalized msg | Cost for 2k unique |
-|---|---|---|---|
-| ElevenLabs Flash/Turbo | ~$0.05 / 1k chars | ~$0.015–$0.025 | **$30–$50** |
-| ElevenLabs Multilingual | ~$0.10 / 1k chars | ~$0.03–$0.05 | **$60–$100** |
-| Cartesia Sonic (Startup ~$49 / 1.25M credits) | ~1 credit/char (~$0.039/1k on Startup) | ~$0.012–$0.02 | **$24–$40** + plan |
-| **Static clone reused** | Generate once | ~$0 | **~$0 TTS** after first render |
+- ~30–45s script ≈ **300–500 characters**
+- **ElevenLabs Multilingual v2/v3** (highest quality tier they publish for TTS): ~$0.10 / 1k chars → **~$0.03–$0.05 to render the campaign audio once**
+- **Professional Voice Clone**: Creator plan ~$22/mo (or Pro ~$99 for more PVC slots + 44.1kHz). Training itself isn’t the expensive part; monthly plan unlocks PVC. One render of your script on that clone is still pennies.
+- Then host the WAV/MP3 and pass the same URL to every Drop.co / Slybroadcast send.
+
+Only regenerate when the script/voice changes. Full 1:1 per-lead TTS is optional later and is what blows budgets.
 
 **Winning cost strategy for <$100 / 2k:**
 
@@ -88,7 +88,17 @@ Assume ~30–45s script ≈ **300–500 characters**.
 3. Skip Drop Cowboy unless you specifically need their BYOC/dialer stack.
 4. Full 1:1 AI personalization on VoiceDrop-style metering often **breaks** the $100 target.
 
-**Recommended Dropseq default delivery adapter: Slybroadcast** — cheapest plan that still has a clear public API, caller ID field for your Twilio numbers, and delivery postbacks.
+### PAYG pick (user preference)
+
+| Rank | Provider | PAYG for ~2k | Why |
+|---|---|---|---|
+| **1** | **Drop.co** | **$100** ($0.05/drop, no monthly fee) | True PAYG, modern Customer API (`apidocs.drop.co`), webhooks, pacing, post-records for sequencer. Scales to $0.012 @ 100k. |
+| **2** | **Slybroadcast PAYG** | ~**$140** if two $70/1k packs; **$250** for 5k pack @ $0.05 | Credits **never expire**; JSON API + `c_callerID`. Slightly worse $/2k than Drop.co unless you buy the 5k pack. |
+| **3** | **LeadsRain** | **~$40–44** | Cheapest cents + API, but legacy surface + 90-day credit expiry. |
+
+`myringlessvoicemail.com` advertises **1.85¢** PAYG but **no public developer API** — fine for manual UI, wrong for Dropseq.
+
+**Default adapter for PAYG: Drop.co.** Keep Slybroadcast wired as alt (better if you care most about never-expire credits + explicit caller ID field).
 
 ---
 
@@ -201,13 +211,12 @@ Topa today is closer to “RVM as a channel bolt-on to Instantly/Smartlead.” D
 
 ---
 
-## 10. Open decisions for product owner
+## 10. Locked / remaining decisions
 
-1. **Primary cheap API** — Slybroadcast (default recommendation) vs Drop.co vs LeadsRain?
-2. **TTS primary** — Cartesia vs ElevenLabs vs static human WAV?
-3. **Personalization** — full per-lead TTS vs Part1/Part2 splice?
-4. **Compliance posture** — consent hard-gate vs warn-only (“own risk”)?
-5. Keep Twilio AMD as fallback for testing only?
+1. **Delivery default: Drop.co (PAYG)** — confirmed direction unless you prefer Slybroadcast never-expire packs.
+2. **Voice: ElevenLabs highest quality, generate once** — Multilingual (+ PVC if cloning yourself).
+3. **Consent: soft/warn** — cold-call posture; DNC + windows still hard.
+4. Keep Twilio AMD as non-ringless fallback for testing only?
 
 ---
 

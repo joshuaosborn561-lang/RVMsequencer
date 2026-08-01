@@ -2,9 +2,9 @@
  * Rough unit-economics helpers for the "$100 / 2k drops" target.
  * Numbers are approximate 2026 public rates — re-verify before budgeting.
  *
- * Preference order for Dropseq (API + cheap, not Drop Cowboy):
- * 1. Slybroadcast — documented JSON API + c_callerID (Twilio DIDs as CID)
- * 2. Drop.co — modern Customer API, PAYG, no monthly platform fee
+ * Preference order for Dropseq (PAYG + API, not Drop Cowboy):
+ * 1. Drop.co — true PAYG, modern Customer API, $0.05 → $100/2k
+ * 2. Slybroadcast PAYG — never-expire credits + c_callerID
  * 3. LeadsRain — lowest cents, older API surface
  */
 

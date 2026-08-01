@@ -13,12 +13,14 @@ Tools like [Topa.io](https://topa.io) are excellent RVM channel bolt-ons (AI voi
 - Deliverability monitoring + quarantine when a DID is burned  
 - Multi-step campaigns with consent / DNC / timezone gates  
 
-## Stack (scaffold)
+## Stack
 
-- Next.js App Router UI (demo data for now)
-- Prisma schema for workspaces, lines, campaigns, voices, attempts
-- Pure TS engines: warmup, line picker, compliance, reputation, cost estimator
-- Pluggable delivery providers (`MOCK`, **Drop.co**, Slybroadcast, VoiceDrop, Twilio AMD, …)
+- Next.js App Router UI — Smartlead-style campaigns, CSV wizard, Master Inbox, per-client API keys
+- File store (`.data/`) until Postgres is linked; Prisma schema includes Client / ApiKey / Inbox
+- Pure TS engines: warmup, line picker, compliance, reputation, cost estimator, local send windows
+- Pluggable delivery (`MOCK`, **Drop.co**, Slybroadcast, VoiceDrop, Twilio AMD, …)
+
+**Go live:** see [`docs/GO_LIVE.md`](./docs/GO_LIVE.md) for keys, cron, Twilio webhooks, and first-100-drops path.
 
 ## Quick start
 
@@ -53,4 +55,4 @@ Full research: **`docs/RESEARCH.md`**.
 
 ## Compliance
 
-FCC 22-85: ringless voicemail to wireless phones is a TCPA “call.” Default product posture is **consent required**. This repo is not a consent-evasion toolkit.
+FCC 22-85: ringless voicemail to wireless phones is a TCPA “call.” Product default is **soft consent** (cold-call style) with **hard DNC + recipient-local send windows**. Operators are responsible for their own compliance posture.

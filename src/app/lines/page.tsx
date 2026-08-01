@@ -1,4 +1,4 @@
-import { Shell } from "@/components/shell";
+import { AppShell } from "@/components/app-shell";
 import { demoLines } from "@/lib/demo/data";
 
 const statusClass: Record<string, string> = {
@@ -10,7 +10,7 @@ const statusClass: Record<string, string> = {
 
 export default function LinesPage() {
   return (
-    <Shell
+    <AppShell
       title="Line pool"
       subtitle="Twilio DIDs are the inboxes. Caps, warmup day, FCR / Voice Integrity registration, and spam labels decide whether a line can send."
     >
@@ -78,6 +78,6 @@ export default function LinesPage() {
           <li>Auto-quarantine on FLAGGED or delivery collapse; rotate a spare into the campaign.</li>
         </ol>
       </div>
-    </Shell>
+    </AppShell>
   );
 }

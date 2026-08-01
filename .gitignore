@@ -28,6 +28,9 @@
 /public/audio/*
 !/public/audio/.gitkeep
 
+# local file store until Postgres is linked
+/.data/
+
 # debug
 npm-debug.log*
 yarn-debug.log*

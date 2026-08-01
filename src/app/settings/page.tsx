@@ -1,35 +1,62 @@
-import { Shell } from "@/components/shell";
+import Link from "next/link";
+import { AppShell } from "@/components/app-shell";
 
-const findings = [
+const checklist = [
   {
-    title: "Stack locked",
-    body: "Drop.co PAYG for deposit. ElevenLabs Multilingual/PVC for voice (generate once). Recipient-local send windows from phone NPA. DNC scrub via The DNC Project API + internal suppression list.",
+    title: "API keys",
+    body: "Drop.co, ElevenLabs, DNC Project, Twilio, NEXT_PUBLIC_APP_URL — see .env.example.",
   },
   {
-    title: "Send windows",
-    body: "Campaign schedule uses recipient local hour/day (Google libphonenumber timezone prefixes). Outside window → skip and compute nextEligibleAt. Same idea as Smartlead’s timezone schedules.",
+    title: "Public HTTPS host",
+    body: "Deploy so Drop.co can fetch audio URLs and Twilio can hit inbound webhooks.",
   },
   {
-    title: "Env vars you need",
-    body: "DROP_CO_API_KEY, DROP_CO_CAMPAIGN_TOKEN, ELEVENLABS_API_KEY, ELEVENLABS_DEFAULT_VOICE_ID, DNC_PROJECT_API_TOKEN, NEXT_PUBLIC_APP_URL. See .env.example.",
+    title: "Postgres",
+    body: "DATABASE_URL + pnpm db:push. Until then .data/ file store works for single-node demos.",
   },
   {
-    title: "Consent posture",
-    body: "Soft/warn by default (cold-call style). DNC + opt-out + local send windows stay hard.",
+    title: "Cron",
+    body: "POST /api/sequencer/tick every minute while campaigns are ACTIVE.",
+  },
+  {
+    title: "Twilio → Master Inbox",
+    body: "Point DID Voice/Messaging URLs to /api/webhooks/twilio/inbound.",
+  },
+  {
+    title: "Auth",
+    body: "Add login before real client data. Per-client API keys live under Clients / API.",
   },
 ];
 
 export default function SettingsPage() {
   return (
-    <Shell title="Decisions" subtitle="What we’re building against.">
+    <AppShell
+      title="Go live"
+      subtitle="What we need from you to leave mock mode — full detail in docs/GO_LIVE.md."
+      actions={
+        <Link
+          href="/campaigns"
+          className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
+        >
+          Open campaigns
+        </Link>
+      }
+    >
       <div className="grid gap-4">
-        {findings.map((f) => (
+        {checklist.map((f, i) => (
           <article key={f.title} className="panel rounded-xl p-5">
-            <h2 className="font-[family-name:var(--font-display)] text-xl">{f.title}</h2>
-            <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">{f.body}</p>
+            <p className="text-xs uppercase tracking-[0.14em] text-[var(--muted)]">
+              Step {i + 1}
+            </p>
+            <h2 className="mt-1 font-[family-name:var(--font-display)] text-xl">
+              {f.title}
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">
+              {f.body}
+            </p>
           </article>
         ))}
       </div>
-    </Shell>
+    </AppShell>
   );
 }

@@ -1,4 +1,4 @@
-import { Shell } from "@/components/shell";
+import { AppShell } from "@/components/app-shell";
 import { costMatrix, demoCampaigns, demoLines, warmupSchedule } from "@/lib/demo/data";
 import { poolRemainingCapacity } from "@/lib/sequencer/line-picker";
 
@@ -14,7 +14,7 @@ export default function HomePage() {
   const underBudget = costMatrix.filter((c) => c.under100).length;
 
   return (
-    <Shell
+    <AppShell
       title="Fleet overview"
       subtitle="Buy Twilio DIDs, warm them like mailboxes, rotate sends, and watch for burned caller IDs — deposit via Drop.co PAYG (or Slybroadcast), voice rendered once at ElevenLabs quality."
     >
@@ -130,6 +130,6 @@ export default function HomePage() {
           </table>
         </div>
       </section>
-    </Shell>
+    </AppShell>
   );
 }

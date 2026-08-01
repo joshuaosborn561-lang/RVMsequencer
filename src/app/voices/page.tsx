@@ -1,4 +1,4 @@
-import { Shell } from "@/components/shell";
+import { AppShell } from "@/components/app-shell";
 
 const voices = [
   {
@@ -23,7 +23,7 @@ const voices = [
 
 export default function VoicesPage() {
   return (
-    <Shell
+    <AppShell
       title="Voice engine"
       subtitle="You are not regenerating every drop. Generate once at max quality, host the file, pass the same URL to Drop.co / Slybroadcast."
     >
@@ -50,6 +50,6 @@ export default function VoicesPage() {
           callback lift pays for it.
         </p>
       </div>
-    </Shell>
+    </AppShell>
   );
 }

@@ -92,6 +92,78 @@ model Workspace {
   voices     VoiceProfile[]
   leads      Lead[]
   providers  ProviderCredential[]
+  clients    Client[]
+  inbox      InboxMessage[]
+}
+
+/// Book-of-business tenant under a workspace (agency → client).
+model Client {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  name        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  apiKeys  ClientApiKey[]
+  inbox    InboxMessage[]
+  campaigns Campaign[]
+
+  @@index([workspaceId])
+}
+
+/// Per-client API key for programmatic campaign/lead access.
+model ClientApiKey {
+  id         String    @id @default(cuid())
+  clientId   String
+  client     Client    @relation(fields: [clientId], references: [id])
+  name       String
+  /// SHA-256 hex of the secret; plaintext shown once at creation.
+  keyHash    String
+  keyPrefix  String
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([clientId])
+  @@index([keyPrefix])
+}
+
+enum InboxChannel {
+  VOICE_CALLBACK
+  SMS
+  NOTE
+}
+
+enum InboxCategory {
+  UNREAD
+  INTERESTED
+  NOT_INTERESTED
+  CALLBACK
+  DNC
+  OTHER
+}
+
+/// Master Inbox / unibox — Twilio inbound voice/SMS + manual notes.
+model InboxMessage {
+  id          String        @id @default(cuid())
+  workspaceId String
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id])
+  clientId    String?
+  client      Client?       @relation(fields: [clientId], references: [id])
+  campaignId  String?
+  leadId      String?
+  fromE164    String
+  toE164      String
+  channel     InboxChannel
+  body        String
+  category    InboxCategory @default(UNREAD)
+  readAt      DateTime?
+  createdAt   DateTime      @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([clientId, category])
+  @@index([fromE164])
 }
 
 model ProviderCredential {
@@ -188,6 +260,8 @@ model Campaign {
   id              String         @id @default(cuid())
   workspaceId     String
   workspace       Workspace      @relation(fields: [workspaceId], references: [id])
+  clientId        String?
+  client          Client?        @relation(fields: [clientId], references: [id])
   name            String
   status          CampaignStatus @default(DRAFT)
   deliveryMode    DeliveryMode   @default(RVM_PROVIDER)
@@ -208,6 +282,8 @@ model Campaign {
   steps     SequenceStep[]
   enrollments CampaignEnrollment[]
   attempts  DeliveryAttempt[]
+
+  @@index([clientId])
 }
 
 model CampaignLine {

@@ -1,4 +1,4 @@
-import { Shell } from "@/components/shell";
+import { AppShell } from "@/components/app-shell";
 import { demoLines } from "@/lib/demo/data";
 import { evaluateLineHealth } from "@/lib/reputation/evaluate";
 
@@ -15,7 +15,7 @@ export default function DeliverabilityPage() {
   });
 
   return (
-    <Shell
+    <AppShell
       title="Deliverability monitor"
       subtitle="Burn detection combines provider delivery webhooks, callback rates, opt-outs, and carrier analytics labels (Hiya / TNS / First Orion via Voice Integrity or handset probes)."
     >
@@ -55,6 +55,6 @@ export default function DeliverabilityPage() {
           </article>
         ))}
       </div>
-    </Shell>
+    </AppShell>
   );
 }

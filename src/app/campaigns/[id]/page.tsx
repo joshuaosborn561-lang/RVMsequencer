@@ -54,18 +54,27 @@ export default function CampaignWizardPage() {
   }, [reload]);
 
   async function patch(body: Partial<CampaignRecord>) {
+    setMsg(null);
     const res = await fetch(`/api/campaigns/${id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
+    const data = await res.json();
     if (!res.ok) {
-      setMsg(await res.text());
+      const blockers = Array.isArray(data.blockers)
+        ? data.blockers.join(", ")
+        : null;
+      setMsg(
+        blockers
+          ? `Blocked: ${blockers}. ${data.hint ?? ""}`
+          : data.hint ?? data.error ?? "Save failed",
+      );
       return;
     }
-    const data = (await res.json()) as { campaign: CampaignRecord };
-    setCampaign(data.campaign);
+    setCampaign(data.campaign as CampaignRecord);
     setMsg("Saved");
+    window.setTimeout(() => setMsg(null), 2500);
   }
 
   if (loading) {
@@ -92,7 +101,7 @@ export default function CampaignWizardPage() {
   return (
     <AppShell
       title={campaign.name}
-      subtitle={`${campaign.status} · ${leads.length} leads · client ${campaign.clientId ?? "—"}`}
+      subtitle={`${campaign.status} · ${leads.filter((l) => (l.status ?? "PENDING") === "PENDING" || (l.status ?? "PENDING") === "FAILED").length} sendable / ${leads.length} leads · client ${campaign.clientId ?? "—"}`}
     >
       <div className="mb-6 flex flex-wrap gap-1 border-b border-[var(--line)] pb-2">
         {TABS.map((t) => (
@@ -131,11 +140,7 @@ export default function CampaignWizardPage() {
         <PreviewTab campaignId={id} leads={leads} />
       ) : null}
       {tab === "launch" ? (
-        <LaunchTab
-          campaign={campaign}
-          leadCount={leads.length}
-          onSave={patch}
-        />
+        <LaunchTab campaign={campaign} leads={leads} onSave={patch} />
       ) : null}
     </AppShell>
   );
@@ -180,6 +185,7 @@ function LeadsTab({
   });
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+  const [mode, setMode] = useState<"append" | "replace">("append");
 
   async function onFile(file: File) {
     const text = await file.text();
@@ -207,6 +213,7 @@ function LeadsTab({
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
+        mode,
         csv: raw,
         mapping: {
           phone: mapping.phone || "phone",
@@ -228,7 +235,7 @@ function LeadsTab({
       return;
     }
     setResult(
-      `Imported ${data.imported}. Skipped ${data.skipped}. DNC hits ${data.dncHits ?? 0}.`,
+      `${mode === "replace" ? "Replaced then i" : "I"}mported ${data.imported}. Duplicates skipped ${data.duplicates ?? 0}. Invalid ${data.skipped}. DNC (imported suppressed) ${data.dncHits ?? 0}.`,
     );
     onImported();
   }
@@ -285,6 +292,16 @@ function LeadsTab({
               </Field>
             ))}
           </div>
+          <Field label="Import mode">
+            <select
+              className={inputClass}
+              value={mode}
+              onChange={(e) => setMode(e.target.value as "append" | "replace")}
+            >
+              <option value="append">Append (skip duplicate phones)</option>
+              <option value="replace">Replace all leads in campaign</option>
+            </select>
+          </Field>
           <button
             type="button"
             className="w-fit rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
@@ -304,6 +321,11 @@ function LeadsTab({
           <h2 className="font-[family-name:var(--font-display)] text-xl">
             Leads ({leads.length})
           </h2>
+          {leads.length > 50 ? (
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              Showing 50 of {leads.length}
+            </p>
+          ) : null}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -312,7 +334,7 @@ function LeadsTab({
                 <th className="px-4 py-3 font-medium">Phone</th>
                 <th className="px-4 py-3 font-medium">Name</th>
                 <th className="px-4 py-3 font-medium">Company</th>
-                <th className="px-4 py-3 font-medium">DNC</th>
+                <th className="px-4 py-3 font-medium">Send status</th>
                 <th className="px-4 py-3 font-medium">Vars</th>
               </tr>
             </thead>
@@ -328,9 +350,16 @@ function LeadsTab({
                   <td className="px-4 py-3">{l.company ?? "—"}</td>
                   <td className="px-4 py-3">
                     <span
-                      className={`badge ${l.dnc ? "badge-danger" : "badge-ok"}`}
+                      className={`badge ${
+                        l.dnc || (l.status ?? "PENDING") === "SUPPRESSED"
+                          ? "badge-danger"
+                          : (l.status ?? "PENDING") === "SENT"
+                            ? "badge-ok"
+                            : "badge-muted"
+                      }`}
                     >
-                      {l.dnc ? "DNC" : "OK"}
+                      {l.status ?? "PENDING"}
+                      {l.dnc ? " · DNC" : ""}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-[var(--muted)]">
@@ -366,11 +395,26 @@ function SequenceTab({
   const step = campaign.steps[0];
   const [script, setScript] = useState(step?.scriptTemplate ?? "");
   const [delay, setDelay] = useState(String(step?.delayDays ?? 0));
+  const [audioUrl, setAudioUrl] = useState(
+    campaign.audioUrl ?? step?.audioUrl ?? "",
+  );
+  const [voiceId, setVoiceId] = useState(
+    campaign.elevenVoiceId ?? step?.voiceId ?? "",
+  );
 
   useEffect(() => {
     setScript(step?.scriptTemplate ?? "");
     setDelay(String(step?.delayDays ?? 0));
-  }, [step?.scriptTemplate, step?.delayDays]);
+    setAudioUrl(campaign.audioUrl ?? step?.audioUrl ?? "");
+    setVoiceId(campaign.elevenVoiceId ?? step?.voiceId ?? "");
+  }, [
+    step?.scriptTemplate,
+    step?.delayDays,
+    step?.audioUrl,
+    step?.voiceId,
+    campaign.audioUrl,
+    campaign.elevenVoiceId,
+  ]);
 
   return (
     <section className="panel rounded-xl p-5">
@@ -379,7 +423,8 @@ function SequenceTab({
       </h2>
       <p className="mt-1 text-sm text-[var(--muted)]">
         Variables: {"{{first_name}}"}, {"{{last_name}}"}, {"{{company}}"},{" "}
-        {"{{phone}}"}, plus any custom CSV columns.
+        {"{{phone}}"}. Prefer a static audio URL (generate once) over per-lead
+        TTS.
       </p>
       <div className="mt-4 flex flex-col gap-4">
         <Field label="Script template">
@@ -388,6 +433,22 @@ function SequenceTab({
             className={inputClass}
             value={script}
             onChange={(e) => setScript(e.target.value)}
+          />
+        </Field>
+        <Field label="Audio URL (recommended — Drop.co fetches this)">
+          <input
+            className={inputClass}
+            value={audioUrl}
+            onChange={(e) => setAudioUrl(e.target.value)}
+            placeholder="https://…"
+          />
+        </Field>
+        <Field label="ElevenLabs voice id (fallback if no audio URL)">
+          <input
+            className={inputClass}
+            value={voiceId}
+            onChange={(e) => setVoiceId(e.target.value)}
+            placeholder="ELEVENLABS_DEFAULT_VOICE_ID or PVC id"
           />
         </Field>
         <Field label="Delay before send (days)">
@@ -402,14 +463,16 @@ function SequenceTab({
           className="w-fit rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
           onClick={() =>
             void onSave({
+              audioUrl: audioUrl || undefined,
+              elevenVoiceId: voiceId || undefined,
               steps: [
                 {
                   id: step?.id ?? "step_1",
                   position: 1,
                   delayDays: Number(delay) || 0,
                   scriptTemplate: script,
-                  voiceId: step?.voiceId,
-                  audioUrl: step?.audioUrl,
+                  voiceId: voiceId || undefined,
+                  audioUrl: audioUrl || undefined,
                 },
                 ...campaign.steps.filter((s) => s.position !== 1),
               ],
@@ -442,8 +505,8 @@ function LinesTab({
         Lines & caller ID pool
       </h2>
       <p className="mt-1 text-sm text-[var(--muted)]">
-        Comma-separated E.164 numbers (or line IDs). Warmup + daily caps apply
-        at send time — same role as Smartlead mailboxes.
+        Comma-separated E.164 numbers (or demo line ids like ln_1). Empty pool
+        fails closed — campaign will not send. Warmup/caps apply at send time.
       </p>
       <div className="mt-4 flex flex-col gap-4">
         <Field label="Line pool">
@@ -672,28 +735,83 @@ function PreviewTab({
 
 function LaunchTab({
   campaign,
-  leadCount,
+  leads,
   onSave,
 }: {
   campaign: CampaignRecord;
-  leadCount: number;
+  leads: LeadRecord[];
   onSave: (body: Partial<CampaignRecord>) => Promise<void>;
 }) {
+  const sendable = leads.filter((l) => {
+    const s = l.status ?? "PENDING";
+    return (
+      !l.dnc &&
+      l.consentStatus !== "OPTED_OUT" &&
+      s !== "SUPPRESSED" &&
+      s !== "SENT"
+    );
+  });
+  const sent = leads.filter((l) => l.status === "SENT").length;
+  const suppressed = leads.filter(
+    (l) => l.dnc || l.status === "SUPPRESSED",
+  ).length;
+  const hasLines = campaign.lineIds.length > 0;
+  const hasAudio = Boolean(
+    campaign.audioUrl ||
+      campaign.elevenVoiceId ||
+      campaign.steps[0]?.audioUrl ||
+      campaign.steps[0]?.voiceId,
+  );
+  const canStart =
+    sendable.length > 0 && hasLines && hasAudio && campaign.schedule.sendDays.length > 0;
+
   return (
     <section className="panel rounded-xl p-5">
       <h2 className="font-[family-name:var(--font-display)] text-xl">Launch</h2>
       <p className="mt-1 text-sm text-[var(--muted)]">
-        {leadCount} leads loaded. Status: <strong>{campaign.status}</strong>.
-        Cron should hit <code className="text-xs">POST /api/sequencer/tick</code>{" "}
-        every minute while ACTIVE — see Go live.
+        Status: <strong>{campaign.status}</strong>. Railway cron drains ACTIVE
+        campaigns every <strong>5 minutes</strong> with enrollment state (no
+        re-send after SENT). Failures use exponential backoff (cap 8 attempts).
       </p>
+      <ul className="mt-4 space-y-1 text-sm">
+        <li>
+          Sendable: <strong>{sendable.length}</strong> · Sent: {sent} ·
+          Suppressed/DNC: {suppressed} · Total: {leads.length}
+        </li>
+        <li>
+          Lines:{" "}
+          {hasLines ? (
+            <strong>{campaign.lineIds.length}</strong>
+          ) : (
+            <span className="text-[var(--danger)]">none — set Lines tab</span>
+          )}
+        </li>
+        <li>
+          Audio/voice:{" "}
+          {hasAudio ? (
+            <strong>configured</strong>
+          ) : (
+            <span className="text-[var(--danger)]">
+              missing — set Sequence tab
+            </span>
+          )}
+        </li>
+        {campaign.lastDrainAt ? (
+          <li className="text-[var(--muted)]">
+            Last drain {new Date(campaign.lastDrainAt).toLocaleString()} — sent{" "}
+            {campaign.lastDrainStats?.sent ?? 0}, skipped{" "}
+            {campaign.lastDrainStats?.skipped ?? 0}, failed{" "}
+            {campaign.lastDrainStats?.failed ?? 0}
+          </li>
+        ) : null}
+      </ul>
       <div className="mt-4 flex flex-wrap gap-2">
         {campaign.status !== "ACTIVE" ? (
           <button
             type="button"
-            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
+            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
             onClick={() => void onSave({ status: "ACTIVE" })}
-            disabled={leadCount === 0}
+            disabled={!canStart}
           >
             Start campaign
           </button>
@@ -714,6 +832,12 @@ function LaunchTab({
           Back to draft
         </button>
       </div>
+      {!canStart && campaign.status !== "ACTIVE" ? (
+        <p className="mt-3 text-sm text-[var(--warn)]">
+          Start is blocked until you have sendable leads, lines, and
+          audio/voice.
+        </p>
+      ) : null}
     </section>
   );
 }

@@ -32,10 +32,14 @@ const Mapping = z.object({
 });
 
 const Body = z.union([
-  z.object({ leads: z.array(LeadIn).min(1).max(5000) }),
+  z.object({
+    leads: z.array(LeadIn).min(1).max(5000),
+    mode: z.enum(["append", "replace"]).optional(),
+  }),
   z.object({
     csv: z.string().min(1),
     mapping: Mapping,
+    mode: z.enum(["append", "replace"]).optional(),
   }),
 ]);
 
@@ -56,7 +60,10 @@ function rowToLead(
   const custom: Record<string, string> = {};
   for (const [k, v] of Object.entries(row)) {
     if (!reserved.has(k) && v) {
-      const key = k.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+      const key = k
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_|_$/g, "");
       if (key) custom[key] = v;
     }
   }
@@ -83,6 +90,7 @@ export async function POST(req: Request, ctx: Ctx) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
+  const mode = parsed.data.mode ?? "append";
   let incoming: z.infer<typeof LeadIn>[];
   if ("csv" in parsed.data) {
     const { csv, mapping } = parsed.data;
@@ -130,10 +138,13 @@ export async function POST(req: Request, ctx: Ctx) {
     });
   }
 
-  const count = await importLeads(id, normalized);
+  const result = await importLeads(id, normalized, { mode });
   return NextResponse.json({
-    imported: count,
+    imported: result.imported,
+    duplicates: result.duplicates,
+    replaced: result.replaced,
     skipped,
     dncHits,
+    mode,
   });
 }

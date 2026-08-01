@@ -26,8 +26,7 @@ Copy from `.env.example` → `.env` (or Vercel/Railway env UI).
 
 1. **Postgres** — Railway `Postgres` service; app gets `DATABASE_URL=${{Postgres.DATABASE_URL}}`. Schema pushed on deploy via `prisma db push`.
 2. **Host** — Railway web service **RVM Drop** with public HTTPS domain. `NEXT_PUBLIC_APP_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}`. Campaign/inbox state persists on a volume at `/data` (`DATA_DIR=/data`) until the store is fully on Postgres.
-3. **Cron** — Railway cron service every **5 minutes** (platform minimum) →  
-   `POST /api/sequencer/tick` with header `x-cron-secret: $CRON_SECRET` and body `{"drain":true,"limit":50}`.
+3. **Cron** — Railway cron every **5 minutes** → drain tick. Enrollment is **stateful**: leads move `PENDING → SENDING → SENT` (or `FAILED` with exponential backoff, max 8). Soft skips (send window) set `nextEligibleAt` and do **not** re-deposit forever.
 4. **Twilio webhooks + call forwarding** — set your direct line under **Go live** (or `CALL_FORWARD_TO_E164`). Point each DID's Voice URL / Messaging URL to:  
    `POST $NEXT_PUBLIC_APP_URL/api/webhooks/twilio/inbound`  
    Inbound voice → Master Inbox + `<Dial>` to your line (lead shown as caller ID when allowed).

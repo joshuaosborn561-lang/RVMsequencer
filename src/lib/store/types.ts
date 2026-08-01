@@ -47,7 +47,23 @@ export type CampaignRecord = {
   dropCoCampaignToken?: string;
   elevenVoiceId?: string;
   audioUrl?: string;
+  /** Last sequencer drain summary (for Launch UI) */
+  lastDrainAt?: string;
+  lastDrainStats?: {
+    attempted: number;
+    sent: number;
+    skipped: number;
+    failed: number;
+  };
 };
+
+/** Enrollment / send state — required so cron does not re-deposit forever. */
+export type LeadSendStatus =
+  | "PENDING"
+  | "SENDING"
+  | "SENT"
+  | "FAILED"
+  | "SUPPRESSED";
 
 export type LeadRecord = {
   id: string;
@@ -60,8 +76,22 @@ export type LeadRecord = {
   timezone?: string;
   custom: Record<string, string>;
   dnc: boolean;
-  consentStatus: "UNKNOWN" | "EXPRESS_WRITTEN" | "EXPRESS_ORAL" | "ESTABLISHED_BUSINESS" | "OPTED_OUT";
+  consentStatus:
+    | "UNKNOWN"
+    | "EXPRESS_WRITTEN"
+    | "EXPRESS_ORAL"
+    | "ESTABLISHED_BUSINESS"
+    | "OPTED_OUT";
   createdAt: string;
+  /** Defaults to PENDING for legacy rows */
+  status?: LeadSendStatus;
+  attemptCount?: number;
+  nextEligibleAt?: string;
+  lastAttemptAt?: string;
+  sentAt?: string;
+  lastError?: string;
+  providerMessageId?: string;
+  suppressReason?: string;
 };
 
 export type InboxMessage = {
@@ -76,6 +106,8 @@ export type InboxMessage = {
   category: "UNREAD" | "INTERESTED" | "NOT_INTERESTED" | "CALLBACK" | "DNC" | "OTHER";
   createdAt: string;
   readAt?: string;
+  /** Twilio CallSid / MessageSid for webhook idempotency */
+  providerEventId?: string;
 };
 
 export type WorkspaceSettings = {
@@ -93,3 +125,6 @@ export type StoreShape = {
   inbox: InboxMessage[];
   settings: WorkspaceSettings;
 };
+
+export const MAX_SEND_ATTEMPTS = 8;
+export const STALE_SENDING_MS = 15 * 60 * 1000;

@@ -1,5 +1,14 @@
 import { NextResponse } from "next/server";
-import { addInboxMessage, resolveCallForwardTo } from "@/lib/store/db";
+import {
+  addInboxMessage,
+  listCampaigns,
+  resolveCallForwardTo,
+  suppressLeadByPhone,
+} from "@/lib/store/db";
+import {
+  isValidTwilioSignature,
+  twilioAuthConfigured,
+} from "@/lib/twilio/validate";
 import {
   dialForwardTwiml,
   emptyTwiml,
@@ -8,11 +17,7 @@ import {
 
 /**
  * Twilio voice/SMS inbound → Master Inbox + call forward to your direct line.
- *
- * Point each DID's Voice URL + Messaging URL here:
- *   POST $NEXT_PUBLIC_APP_URL/api/webhooks/twilio/inbound
- *
- * Set CALL_FORWARD_TO_E164 (env) or save the number under Go live / settings.
+ * Idempotent on CallSid/MessageSid. Signature-checked when TWILIO_AUTH_TOKEN is set.
  */
 export async function POST(req: Request) {
   const contentType = req.headers.get("content-type") ?? "";
@@ -20,19 +25,30 @@ export async function POST(req: Request) {
   let to = "";
   let body = "";
   let callSid = "";
+  let messageSid = "";
   let channel: "VOICE_CALLBACK" | "SMS" = "VOICE_CALLBACK";
+  const params: Record<string, string> = {};
 
   if (contentType.includes("application/x-www-form-urlencoded")) {
     const form = await req.formData();
-    from = String(form.get("From") ?? "");
-    to = String(form.get("To") ?? "");
-    callSid = String(form.get("CallSid") ?? "");
-    const sms = form.get("Body");
-    if (sms != null) {
+    for (const [k, v] of form.entries()) {
+      params[k] = String(v);
+    }
+    from = params.From ?? "";
+    to = params.To ?? "";
+    callSid = params.CallSid ?? "";
+    messageSid = params.MessageSid ?? params.SmsSid ?? "";
+    if (messageSid || "Body" in params) {
       channel = "SMS";
-      body = String(sms);
+      body = params.Body ?? "";
     } else {
-      body = `Inbound callback · CallSid ${callSid || "unknown"} · status ${String(form.get("CallStatus") ?? "ringing")}`;
+      channel = "VOICE_CALLBACK";
+      body = `Inbound callback · CallSid ${callSid || "unknown"} · status ${params.CallStatus ?? "ringing"}`;
+    }
+    // Voice webhooks have CallSid and no MessageSid
+    if (callSid && !messageSid) {
+      channel = "VOICE_CALLBACK";
+      body = `Inbound callback · CallSid ${callSid} · status ${params.CallStatus ?? "ringing"}`;
     }
   } else {
     const json = (await req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -40,12 +56,31 @@ export async function POST(req: Request) {
     to = String(json.To ?? json.to ?? "");
     body = String(json.Body ?? json.body ?? "Inbound event");
     callSid = String(json.CallSid ?? "");
-    if (json.Body || json.body) channel = "SMS";
+    messageSid = String(json.MessageSid ?? "");
+    if (json.Body || json.body || messageSid) channel = "SMS";
+  }
+
+  if (twilioAuthConfigured() && contentType.includes("application/x-www-form-urlencoded")) {
+    const signature = req.headers.get("x-twilio-signature");
+    const url = process.env.NEXT_PUBLIC_APP_URL
+      ? `${process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")}/api/webhooks/twilio/inbound`
+      : req.url;
+    const ok = isValidTwilioSignature({
+      authToken: process.env.TWILIO_AUTH_TOKEN!,
+      signature,
+      url,
+      params,
+    });
+    if (!ok && process.env.NODE_ENV === "production") {
+      return new NextResponse("invalid signature", { status: 403 });
+    }
   }
 
   if (!from || !to) {
     return NextResponse.json({ error: "missing_from_to" }, { status: 400 });
   }
+
+  const providerEventId = callSid || messageSid || undefined;
 
   if (channel === "VOICE_CALLBACK") {
     const forward = await resolveCallForwardTo();
@@ -59,7 +94,17 @@ export async function POST(req: Request) {
       channel,
       body: note,
       category: "CALLBACK",
+      providerEventId,
     });
+
+    const stopOnCallback = (await listCampaigns()).some(
+      (c) =>
+        (c.status === "ACTIVE" || c.status === "PAUSED") &&
+        c.schedule.stopOnCallback,
+    );
+    if (stopOnCallback) {
+      await suppressLeadByPhone(from, "CALLBACK");
+    }
 
     if (!forward.e164) {
       return new NextResponse(
@@ -81,14 +126,19 @@ export async function POST(req: Request) {
     );
   }
 
-  // SMS — log only (no forward)
-  const message = await addInboxMessage({
+  const isStop = /^\s*(stop|unsubscribe|cancel|end|quit)\s*$/i.test(body);
+  const { message } = await addInboxMessage({
     fromE164: from,
     toE164: to,
     channel,
     body,
-    category: "UNREAD",
+    category: isStop ? "DNC" : "UNREAD",
+    providerEventId,
   });
+
+  if (isStop) {
+    await suppressLeadByPhone(from, "SMS_STOP", { optOut: true, markDnc: true });
+  }
 
   return new NextResponse(emptyTwiml(), {
     headers: {

@@ -14,6 +14,12 @@ import { timezoneFromPhone } from "../src/lib/timezone/from-phone";
 import { evaluateSendWindow } from "../src/lib/sequencer/send-window";
 import { mockDncScrubber, scrubWithAll } from "../src/lib/dnc/scrub";
 import { runAttempt } from "../src/lib/sequencer/run-attempt";
+import {
+  failureBackoffMs,
+  nextFailureEligibleAt,
+  shouldGiveUp,
+} from "../src/lib/sequencer/backoff";
+import { MAX_SEND_ATTEMPTS } from "../src/lib/store/types";
 
 // Warmup ramp is gradual and hits target near minWarmDays
 const schedule = buildWarmupSchedule();
@@ -288,6 +294,14 @@ async function main() {
     now: new Date("2026-08-03T18:00:00.000Z"),
   });
   assert.equal(sentAttempt.status, "SENT");
+
+  // Enrollment backoff — finite, capped, not infinite hammering
+  assert.ok(failureBackoffMs(1) >= 5 * 60 * 1000);
+  assert.ok(failureBackoffMs(20) <= 6 * 60 * 60 * 1000);
+  assert.equal(shouldGiveUp(MAX_SEND_ATTEMPTS - 1), false);
+  assert.equal(shouldGiveUp(MAX_SEND_ATTEMPTS), true);
+  const nxt = nextFailureEligibleAt(1, new Date("2026-08-01T00:00:00.000Z"));
+  assert.ok(nxt.getTime() > Date.parse("2026-08-01T00:00:00.000Z"));
 
   console.log("verify-core: all assertions passed");
 }

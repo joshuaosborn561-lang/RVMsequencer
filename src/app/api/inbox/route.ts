@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { listInbox, updateInboxMessage } from "@/lib/store/db";
+import {
+  listInbox,
+  suppressLeadByPhone,
+  updateInboxMessage,
+} from "@/lib/store/db";
 
 export async function GET(req: Request) {
   const clientId = new URL(req.url).searchParams.get("clientId") ?? undefined;
@@ -25,5 +29,16 @@ export async function PATCH(req: Request) {
   if (!message) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
+
+  if (patch.category === "DNC") {
+    await suppressLeadByPhone(message.fromE164, "INBOX_DNC", {
+      optOut: true,
+      markDnc: true,
+    });
+  }
+  if (patch.category === "CALLBACK") {
+    await suppressLeadByPhone(message.fromE164, "INBOX_CALLBACK");
+  }
+
   return NextResponse.json({ message });
 }

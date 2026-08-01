@@ -1,6 +1,9 @@
-# What you need to make Dropseq live
+# What you need to make RVM Drop live
 
-Short answer: **API keys + a public HTTPS host + Postgres + a one-minute cron**. The Smartlead-style campaign/inbox/API-key UI is in the app; engines (DNC, local windows, Drop.co, ElevenLabs) are wired — they light up when the keys below are set.
+Short answer: **API keys + Railway (HTTPS + Postgres + cron)**. The Smartlead-style campaign/inbox/API-key UI is in the app; engines (DNC, local windows, Drop.co, ElevenLabs) are wired — they light up when the keys below are set.
+
+**Railway project name:** `RVM Drop`  
+Infra items 2–4 (host, Postgres, cron) are provisioned on Railway. You still paste vendor API keys (item 1) and auth (item 5).
 
 ## 1. Accounts & API keys (you provide)
 
@@ -16,21 +19,15 @@ Optional later: Slybroadcast backup deposit, Hiya/Voice Integrity for spam label
 
 Copy from `.env.example` → `.env` (or Vercel/Railway env UI).
 
-## 2. Infrastructure checklist
+## 2. Infrastructure checklist (Railway)
 
-1. **Postgres** — set `DATABASE_URL` (Neon / Supabase / Railway). Run `pnpm db:push`. Until then the app uses a local file store under `.data/` (fine for demos, not multi-instance prod).
-2. **Host the Next app** — Vercel or Railway with a **public HTTPS URL**. Drop.co must reach `audioUrl` on that host.
-3. **Worker / cron** — every minute while campaigns are ACTIVE, call:
-   ```bash
-   curl -X POST "$NEXT_PUBLIC_APP_URL/api/sequencer/tick" \
-     -H "content-type: application/json" \
-     -d '{"limit": 50}'
-   ```
-   (Vercel Cron, Railway cron, or any scheduler.)
-4. **Twilio webhooks** — point each DID's Voice URL / Messaging URL to:
+1. **Postgres** — Railway `Postgres` service; app gets `DATABASE_URL=${{Postgres.DATABASE_URL}}`. Schema pushed on deploy via `prisma db push`.
+2. **Host** — Railway web service **RVM Drop** with public HTTPS domain. `NEXT_PUBLIC_APP_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}`. Campaign/inbox state persists on a volume at `/data` (`DATA_DIR=/data`) until the store is fully on Postgres.
+3. **Cron** — Railway cron service every **5 minutes** (platform minimum) →  
+   `POST /api/sequencer/tick` with header `x-cron-secret: $CRON_SECRET` and body `{"drain":true,"limit":50}`.
+4. **Twilio webhooks** — point each DID's Voice URL / Messaging URL to:  
    `POST $NEXT_PUBLIC_APP_URL/api/webhooks/twilio/inbound`
-   Those events land in **Master Inbox**.
-5. **Auth** — lock the UI before real client data. Per-client API keys are already in `/clients` for programmatic access once you gate routes on key hash.
+5. **Auth** — still needed before real client data. Per-client API keys live under **Clients / API**.
 
 ## 3. Smartlead-parity surface — status
 

@@ -19,7 +19,7 @@ const mono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Dropseq — RVM Sequencer",
+  title: "RVM Drop — Smartlead for ringless voicemail",
   description:
     "Smartlead-style sequencer for ringless voicemail: Twilio line pools, warmup, AI voice, deliverability.",
 };

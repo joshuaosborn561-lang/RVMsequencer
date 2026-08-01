@@ -1,9 +1,20 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { runAttempt } from "@/lib/sequencer/run-attempt";
 import { getDncScrubbers, getDropCoDelivery, getElevenLabs } from "@/lib/config";
+import { drainActiveCampaigns } from "@/lib/sequencer/drain";
+import { runAttempt } from "@/lib/sequencer/run-attempt";
 
-const Body = z.object({
+function authorizeCron(req: Request): boolean {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) {
+    return process.env.NODE_ENV !== "production";
+  }
+  const header = req.headers.get("x-cron-secret") ?? "";
+  const auth = req.headers.get("authorization") ?? "";
+  return header === secret || auth === `Bearer ${secret}`;
+}
+
+const SingleBody = z.object({
   lead: z.object({
     id: z.string(),
     phoneE164: z.string(),
@@ -61,12 +72,44 @@ const Body = z.object({
 });
 
 /**
- * Process one enrollment tick:
- * scrub → recipient-local window → line pick → audio → Drop.co.
+ * Sequencer tick:
+ * - Cron / `{ "drain": true, "limit": N }` → drain ACTIVE campaigns from store
+ * - Full lead+campaign body → single attempt (tests / manual)
  */
 export async function POST(req: Request) {
-  const json: unknown = await req.json();
-  const parsed = Body.safeParse(json);
+  if (!authorizeCron(req)) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  const raw = await req.text();
+  let json: unknown = { drain: true };
+  if (raw.trim()) {
+    try {
+      json = JSON.parse(raw);
+    } catch {
+      return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+    }
+  }
+
+  const isSingle =
+    json &&
+    typeof json === "object" &&
+    "lead" in json &&
+    "campaign" in json;
+
+  if (!isSingle) {
+    const limit =
+      json &&
+      typeof json === "object" &&
+      "limit" in json &&
+      typeof (json as { limit: unknown }).limit === "number"
+        ? Math.min(200, Math.max(1, (json as { limit: number }).limit))
+        : 25;
+    const result = await drainActiveCampaigns(limit);
+    return NextResponse.json({ mode: "drain", ...result });
+  }
+
+  const parsed = SingleBody.safeParse(json);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
@@ -81,5 +124,5 @@ export async function POST(req: Request) {
     voice: process.env.ELEVENLABS_API_KEY ? getElevenLabs() : undefined,
   });
 
-  return NextResponse.json(result);
+  return NextResponse.json({ mode: "single", ...result });
 }

@@ -32,10 +32,10 @@ export function AppShell({
       <div className="mx-auto flex min-h-full w-full max-w-7xl gap-0 md:gap-8 px-0 md:px-6 py-0 md:py-6">
         <aside className="hidden w-56 shrink-0 border-r border-[var(--line)] bg-white/50 p-5 md:block md:rounded-2xl md:border">
           <p className="font-[family-name:var(--font-display)] text-2xl tracking-tight">
-            Dropseq
+            RVM Drop
           </p>
           <p className="mt-1 text-xs text-[var(--muted)]">
-            Smartlead for RVM
+            Smartlead for ringless voicemail
           </p>
           <nav className="mt-8 flex flex-col gap-1">
             {nav.map((item) => {

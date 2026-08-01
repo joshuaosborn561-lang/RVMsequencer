@@ -24,7 +24,7 @@ export function Shell({
         <header className="mb-8 flex flex-col gap-6 border-b border-[var(--line)] pb-6 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="font-[family-name:var(--font-display)] text-3xl tracking-tight text-[var(--ink)] md:text-4xl">
-              Dropseq
+              RVM Drop
             </p>
             <p className="mt-1 max-w-xl text-sm text-[var(--muted)]">
               RVM sequencer — line pools, warmup, campaigns, and burn detection.

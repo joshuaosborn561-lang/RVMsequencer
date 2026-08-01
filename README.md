@@ -1,8 +1,10 @@
-# Dropseq
+# RVM Drop
 
 **Smartlead for ringless voicemail** — a sequencer that manages Twilio line pools, warmup/caps, AI voice generation, campaigns, and burned-line detection.
 
-> Twilio alone cannot deposit true ringless voicemail. Dropseq owns the control plane; deposit defaults to **Drop.co PAYG** (alts: Slybroadcast PAYG, LeadsRain). Voice = ElevenLabs highest quality, **generate once**. See [`docs/RESEARCH.md`](./docs/RESEARCH.md).
+> Twilio alone cannot deposit true ringless voicemail. RVM Drop owns the control plane; deposit defaults to **Drop.co PAYG** (alts: Slybroadcast PAYG, LeadsRain). Voice = ElevenLabs highest quality, **generate once**. See [`docs/RESEARCH.md`](./docs/RESEARCH.md).
+
+Deploy target: **Railway** project `RVM Drop` (HTTPS + Postgres + 5‑minute sequencer cron).
 
 ## Why this exists
 

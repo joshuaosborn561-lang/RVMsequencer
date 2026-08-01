@@ -83,7 +83,7 @@ export const demoCampaigns = [
     enrolled: 1840,
     sentToday: 126,
     deliveredToday: 101,
-    provider: "MOCK",
+    provider: "SLYBROADCAST",
     mode: "RVM_PROVIDER",
   },
   {
@@ -93,18 +93,30 @@ export const demoCampaigns = [
     enrolled: 420,
     sentToday: 0,
     deliveredToday: 0,
-    provider: "MOCK",
+    provider: "DROP_CO",
     mode: "RVM_PROVIDER",
   },
 ];
 
 export const warmupSchedule = buildWarmupSchedule();
 
-export const costMatrix = DELIVERY_SCENARIOS.flatMap((delivery) => {
+/** Prefer API-cheap providers in the overview table (skip Cowboy noise). */
+const OVERVIEW_DELIVERY_IDS = [
+  "slybroadcast_2k_monthly",
+  "dropco_simple",
+  "leadsrain_static",
+  "topa_ai",
+  "slybroadcast_payg_5k",
+  "twilio_amd",
+];
+
+export const costMatrix = DELIVERY_SCENARIOS.filter((d) =>
+  OVERVIEW_DELIVERY_IDS.includes(d.id),
+).flatMap((delivery) => {
   const ttsOptions = delivery.includesAiVoice
     ? [TTS_SCENARIOS.find((t) => t.id === "static_reuse")!]
     : TTS_SCENARIOS.filter((t) =>
-        ["static_reuse", "cartesia_startup", "eleven_flash"].includes(t.id),
+        ["static_reuse", "cartesia_startup"].includes(t.id),
       );
   return ttsOptions.map((tts) => {
     const run = estimateRun({

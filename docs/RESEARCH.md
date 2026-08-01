@@ -33,29 +33,34 @@ This is why DIY “RVM on Twilio alone” is a dead end — you would need carri
 
 ---
 
-## 3. Legal / compliance (must design for)
+## 3. Legal / compliance (product posture)
 
-- **FCC Declaratory Ruling FCC 22-85 (Nov 21, 2022):** Ringless voicemail to wireless phones **is a “call”** under TCPA §227(b)(1)(A)(iii). Artificial/prerecorded RVM requires the called party’s **prior express consent**.
-- Statutory damages commonly cited at **$500–$1,500 per violation**.
-- TCPA calling windows still apply in practice for RVM platforms (many queue outside 8am–9pm recipient local time).
-- AI voice / clone messaging may trigger additional state disclosure rules — treat as product requirements (consent flags, DNC scrub, audit log), not afterthoughts.
+**There is a federal FCC action on this.** On Nov 21, 2022 the FCC issued Declaratory Ruling **FCC 22-85** finding that ringless voicemail to wireless phones is a “call” under TCPA §227(b)(1)(A)(iii) and requires prior express consent. That is not “no federal ruling.”
 
-Dropseq must gate sends on consent status + DNC + timezone windows. We are not building a consent-evasion tool.
+Where it gets grey (and why operators disagree):
+
+- How courts apply consent form (oral vs written), marketing vs informational, and platform vs sender liability still varies by circuit/case.
+- Enforcement and private TCPA litigation risk are uneven; some businesses treat it as grey and accept risk.
+- Statutory damages commonly cited at **$500–$1,500 per violation** when plaintiffs win.
+
+Dropseq defaults to consent/DNC/timezone gates as product safety rails. Softening those gates is an explicit product decision, not a research conclusion that “there is no law.”
 
 ---
 
 ## 4. Cost model: 2,000 drops under $100
 
-### Market RVM delivery (static vs AI)
+### Market RVM delivery (static vs AI) — prefer API + cheap over Cowboy
 
-| Provider | Approx 2026 unit economics | 2,000 drops |
-|---|---|---|
-| **Topa.io** | Homepage: AI RVM = **0.5 credit × $0.05 = ~$0.025**/drop (help docs also list 1 credit in places — verify at send time) | **~$50** (inside budget if 0.5-credit pricing holds) |
-| **Slybroadcast** | Monthly ~$100 / 2,000; PAYG ~$0.06 @ 1k → ~$0.04 @ 10k | **~$80–$120** |
-| **LeadsRain** | ~$0.02 + ~$0.002 DNC scrub | **~$44** |
-| **Drop Co** | ~$0.05 @ 1k, ~$0.035 @ 10k | **~$70–$100** |
-| **VoiceDrop** | Static 0.5 units; Budget $95 → up to 1k static; AI personalized ~2–3 units | Static OK at volume plans; **AI personalization often exceeds $100/2k** |
-| **Drop Cowboy BYOC** | Wholesale claims ~$0.004/msg + Twilio usage + platform fee | Can beat $100 at scale **if** platform fee amortized |
+Drop Cowboy is optional/overkill if you only need deposit + API. Cheaper documented APIs:
+
+| Provider | Approx 2026 unit economics | 2,000 drops | API notes |
+|---|---|---|---|
+| **Slybroadcast** ⭐ default | Monthly **$100 / 2,000**; PAYG ~$0.07 @ 1k pack, ~$0.05 @ 5k | **~$100** on monthly plan | JSON form API (`vmb.json.php`), **`c_callerID`**, status webhooks (`c_dispo_url`). Free API w/ account. |
+| **Drop.co** | **$0.05** @ 1k → $0.035 @ 10k → $0.012 @ 100k; no monthly fee | **~$100** at Simple tier | Customer API (`apidocs.drop.co`): create campaign → post records; webhooks. |
+| **LeadsRain** | ~**$0.015–$0.02** + ~$0.002 DNC scrub | **~$44** | API at leadsrain.com/apidocs (legacy). Credits expire ~90d. |
+| **Topa.io** | AI RVM ~**$0.025**/drop bundled | **~$50** | Webhooks/integrations; less Twilio-CID fleet control. |
+| **VoiceDrop** | Static cheaper at scale; AI units pricier | Often >$100 for AI | Modern REST; premium positioning. |
+| **Drop Cowboy** | Platform ~$125+ / BYOC wholesale claims | Higher TCO unless huge volume | Full suite; skip unless you need BYOC/dialer CRM. |
 
 ### Twilio AMD path (not ringless)
 
@@ -78,11 +83,12 @@ Assume ~30–45s script ≈ **300–500 characters**.
 
 **Winning cost strategy for <$100 / 2k:**
 
-1. **Static or lightly templated audio** (name splice / short personalized intro + shared body) beats full per-lead TTS.
-2. Delivery via Topa-class (~2.5¢) or cheap static RVM (~1–3.5¢) + own TTS only when needed.
-3. Full 1:1 AI personalization on VoiceDrop-style metering often **breaks** the $100 target unless volume-plan units are large.
+1. **Deposit via Slybroadcast monthly 2k ($100 flat)** or Drop.co PAYG ($0.05 → $100) or LeadsRain (~$44 static).
+2. **Static or lightly templated audio** + Cartesia/ElevenLabs clone rendered once (or Part1/Part2 splice) so TTS ≠ budget killer.
+3. Skip Drop Cowboy unless you specifically need their BYOC/dialer stack.
+4. Full 1:1 AI personalization on VoiceDrop-style metering often **breaks** the $100 target.
 
-Topa already bundles AI voice + drop at ~2.5¢ — that’s the competitive bar Dropseq must beat or match with BYOC + Cartesia/ElevenLabs + cheaper deposit.
+**Recommended Dropseq default delivery adapter: Slybroadcast** — cheapest plan that still has a clear public API, caller ID field for your Twilio numbers, and delivery postbacks.
 
 ---
 
@@ -197,11 +203,11 @@ Topa today is closer to “RVM as a channel bolt-on to Instantly/Smartlead.” D
 
 ## 10. Open decisions for product owner
 
-1. **True RVM vs AMD** — ship both, default RVM via partner?
-2. **Primary delivery partner** — Drop Cowboy BYOC (keeps Twilio DIDs) vs VoiceDrop API vs multi-provider?
-3. **TTS primary** — Cartesia (cheaper clone/volume) vs ElevenLabs (quality) vs Topa-like bundled?
-4. **Personalization** — full per-lead TTS vs Topa-style Part1/Part2 splice (much cheaper)?
-5. **Compliance posture** — consent required hard-gate (recommended) vs warn-only for “own risk” accounts?
+1. **Primary cheap API** — Slybroadcast (default recommendation) vs Drop.co vs LeadsRain?
+2. **TTS primary** — Cartesia vs ElevenLabs vs static human WAV?
+3. **Personalization** — full per-lead TTS vs Part1/Part2 splice?
+4. **Compliance posture** — consent hard-gate vs warn-only (“own risk”)?
+5. Keep Twilio AMD as fallback for testing only?
 
 ---
 

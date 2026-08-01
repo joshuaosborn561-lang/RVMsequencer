@@ -25,9 +25,11 @@ enum DeliveryMode {
 }
 
 enum DeliveryProvider {
+  SLYBROADCAST
+  DROP_CO
+  LEADSRAIN
   VOICEDROP
   DROP_COWBOY
-  SLYBROADCAST
   TWILIO_AMD
   MOCK
 }

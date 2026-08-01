@@ -31,7 +31,14 @@ export type SendRvmInput = {
 };
 
 export type RvmDeliveryProvider = {
-  id: "VOICEDROP" | "DROP_COWBOY" | "SLYBROADCAST" | "TWILIO_AMD" | "MOCK";
+  id:
+    | "VOICEDROP"
+    | "DROP_COWBOY"
+    | "DROP_CO"
+    | "SLYBROADCAST"
+    | "LEADSRAIN"
+    | "TWILIO_AMD"
+    | "MOCK";
   supportsTrueRingless: boolean;
   send(input: SendRvmInput): Promise<DeliveryResult>;
 };

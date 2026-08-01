@@ -2,7 +2,7 @@
 
 **Smartlead for ringless voicemail** — a sequencer that manages Twilio line pools, warmup/caps, AI voice generation, campaigns, and burned-line detection.
 
-> Twilio alone cannot deposit true ringless voicemail. Dropseq owns the control plane; an RVM provider (or Twilio AMD fallback) owns deposit. See [`docs/RESEARCH.md`](./docs/RESEARCH.md).
+> Twilio alone cannot deposit true ringless voicemail. Dropseq owns the control plane; a cheap RVM API (default **Slybroadcast**, alts Drop.co / LeadsRain) owns deposit. See [`docs/RESEARCH.md`](./docs/RESEARCH.md).
 
 ## Why this exists
 
@@ -18,7 +18,7 @@ Tools like [Topa.io](https://topa.io) are excellent RVM channel bolt-ons (AI voi
 - Next.js App Router UI (demo data for now)
 - Prisma schema for workspaces, lines, campaigns, voices, attempts
 - Pure TS engines: warmup, line picker, compliance, reputation, cost estimator
-- Pluggable delivery providers (`MOCK`, VoiceDrop, Drop Cowboy, Slybroadcast, Twilio AMD)
+- Pluggable delivery providers (`MOCK`, **Slybroadcast**, Drop.co, VoiceDrop, Twilio AMD, …)
 
 ## Quick start
 

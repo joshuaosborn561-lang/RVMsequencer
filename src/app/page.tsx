@@ -16,7 +16,7 @@ export default function HomePage() {
   return (
     <Shell
       title="Fleet overview"
-      subtitle="Buy Twilio DIDs, warm them like mailboxes, rotate sends, and watch for burned caller IDs — while an RVM provider (or Twilio AMD fallback) handles deposit."
+      subtitle="Buy Twilio DIDs, warm them like mailboxes, rotate sends, and watch for burned caller IDs — deposit via a cheap RVM API (Slybroadcast / Drop.co), not a bloated Cowboy stack."
     >
       <section className="grid gap-4 md:grid-cols-4">
         {[

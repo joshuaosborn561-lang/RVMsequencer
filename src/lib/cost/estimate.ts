@@ -1,6 +1,11 @@
 /**
  * Rough unit-economics helpers for the "$100 / 2k drops" target.
  * Numbers are approximate 2026 public rates — re-verify before budgeting.
+ *
+ * Preference order for Dropseq (API + cheap, not Drop Cowboy):
+ * 1. Slybroadcast — documented JSON API + c_callerID (Twilio DIDs as CID)
+ * 2. Drop.co — modern Customer API, PAYG, no monthly platform fee
+ * 3. LeadsRain — lowest cents, older API surface
  */
 
 export type CostScenario = {
@@ -9,43 +14,65 @@ export type CostScenario = {
   perDropUsd: number;
   notes: string;
   includesAiVoice: boolean;
+  hasApi: boolean;
 };
 
 export const DELIVERY_SCENARIOS: CostScenario[] = [
   {
-    id: "topa_ai",
-    label: "Topa AI RVM (0.5 credit @ $0.05)",
-    perDropUsd: 0.025,
-    notes: "Bundled AI voice + drop. Confirm credit cost in Topa help (0.5 vs 1).",
-    includesAiVoice: true,
+    id: "slybroadcast_2k_monthly",
+    label: "Slybroadcast monthly 2k plan",
+    perDropUsd: 0.05,
+    notes: "$100/mo for 2,000 deliveries. JSON API + c_callerID. Credits expire monthly.",
+    includesAiVoice: false,
+    hasApi: true,
+  },
+  {
+    id: "slybroadcast_payg_5k",
+    label: "Slybroadcast PAYG (~5k pack)",
+    perDropUsd: 0.05,
+    notes: "~$250 / 5,000 ≈ $0.05; PAYG credits do not expire. AI personalization = 2 credits.",
+    includesAiVoice: false,
+    hasApi: true,
+  },
+  {
+    id: "dropco_simple",
+    label: "Drop.co Simple tier",
+    perDropUsd: 0.05,
+    notes: "$0.05/drop @ 1k volume, no monthly fee. Customer API + webhooks. Scales to $0.012 @ 100k.",
+    includesAiVoice: false,
+    hasApi: true,
   },
   {
     id: "leadsrain_static",
     label: "LeadsRain static + DNC scrub",
     perDropUsd: 0.022,
-    notes: "~$0.02 drop + ~$0.002 scrub; prepaid credits may expire.",
+    notes: "~$0.02 drop + ~$0.002 scrub; API exists (legacy). Credits expire ~90 days.",
     includesAiVoice: false,
+    hasApi: true,
   },
   {
-    id: "slybroadcast_2k_plan",
-    label: "Slybroadcast ~2k monthly plan",
-    perDropUsd: 0.05,
-    notes: "~$100/2k plan; unused credits often expire.",
-    includesAiVoice: false,
+    id: "topa_ai",
+    label: "Topa AI RVM (0.5 credit @ $0.05)",
+    perDropUsd: 0.025,
+    notes: "Bundled AI voice + drop. Great price; less control over your Twilio CID fleet.",
+    includesAiVoice: true,
+    hasApi: true,
   },
   {
     id: "voicedrop_static_budget",
     label: "VoiceDrop static (Budget utilization)",
     perDropUsd: 0.095,
-    notes: "$95/mo / ~1000 static drops at full use; better at higher tiers.",
+    notes: "$95/mo / ~1000 static drops at full use — pricier than Sly/Drop.co for static.",
     includesAiVoice: false,
+    hasApi: true,
   },
   {
-    id: "dropcowboy_byoc_wholesale",
-    label: "Drop Cowboy BYOC wholesale (excl. platform fee)",
-    perDropUsd: 0.004,
-    notes: "Claims ~$0.004/msg + Twilio usage + platform subscription.",
+    id: "dropcowboy_platform",
+    label: "Drop Cowboy (typical platform path)",
+    perDropUsd: 0.025,
+    notes: "Entry plans ~$125/mo + overage/compliance fees. BYOC can go lower at scale — overkill if you only need an API.",
     includesAiVoice: false,
+    hasApi: true,
   },
   {
     id: "twilio_amd",
@@ -53,6 +80,7 @@ export const DELIVERY_SCENARIOS: CostScenario[] = [
     perDropUsd: 0.03,
     notes: "~$0.014/min + $0.0075 AMD; phone rings — not true RVM.",
     includesAiVoice: false,
+    hasApi: true,
   },
 ];
 

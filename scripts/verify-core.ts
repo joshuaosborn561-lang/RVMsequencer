@@ -110,16 +110,28 @@ const burned = evaluateLineHealth({
 });
 assert.equal(burned.action, "quarantine");
 
-// Cost: Topa-class 2k under $100; Eleven multilingual + VoiceDrop budget often not
-const topa = estimateRun({
+// Cost: Slybroadcast 2k monthly and LeadsRain static under $100;
+// full personalized Eleven multilingual on top of $0.05 deposit often is not
+const sly = estimateRun({
   drops: 2000,
-  delivery: DELIVERY_SCENARIOS.find((d) => d.id === "topa_ai")!,
+  delivery: DELIVERY_SCENARIOS.find((d) => d.id === "slybroadcast_2k_monthly")!,
+  tts: TTS_SCENARIOS.find((t) => t.id === "static_reuse")!,
+  personalizedFraction: 0,
 });
-assert.equal(topa.under100, true);
+assert.equal(sly.under100, true);
+assert.equal(sly.totalUsd, 100);
+
+const leadsrain = estimateRun({
+  drops: 2000,
+  delivery: DELIVERY_SCENARIOS.find((d) => d.id === "leadsrain_static")!,
+  tts: TTS_SCENARIOS.find((t) => t.id === "static_reuse")!,
+  personalizedFraction: 0,
+});
+assert.equal(leadsrain.under100, true);
 
 const expensive = estimateRun({
   drops: 2000,
-  delivery: DELIVERY_SCENARIOS.find((d) => d.id === "voicedrop_static_budget")!,
+  delivery: DELIVERY_SCENARIOS.find((d) => d.id === "dropco_simple")!,
   tts: TTS_SCENARIOS.find((t) => t.id === "eleven_multi")!,
   personalizedFraction: 1,
   charsPerMessage: 400,

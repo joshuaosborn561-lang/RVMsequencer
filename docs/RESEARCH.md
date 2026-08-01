@@ -211,12 +211,15 @@ Topa today is closer to “RVM as a channel bolt-on to Instantly/Smartlead.” D
 
 ---
 
-## 10. Locked / remaining decisions
+## 10. Locked decisions
 
-1. **Delivery default: Drop.co (PAYG)** — confirmed direction unless you prefer Slybroadcast never-expire packs.
-2. **Voice: ElevenLabs highest quality, generate once** — Multilingual (+ PVC if cloning yourself).
-3. **Consent: soft/warn** — cold-call posture; DNC + windows still hard.
-4. Keep Twilio AMD as non-ringless fallback for testing only?
+1. **Delivery: Drop.co PAYG**
+2. **Voice: ElevenLabs Multilingual / PVC, generate once**
+3. **Send windows: recipient-local** via Google libphonenumber timezone prefix map (NPA → IANA)
+4. **DNC: The DNC Project API** + internal suppression list (hard gate)
+5. **Consent: soft/warn** — cold-call posture
+
+Wired APIs: `POST /api/scrub`, `GET /api/timezone`, `POST /api/voice/render`, `POST /api/sequencer/tick`.
 
 ---
 

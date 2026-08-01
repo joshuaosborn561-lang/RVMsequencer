@@ -2,8 +2,10 @@
 
 Short answer: **API keys + Railway (HTTPS + Postgres + cron)**. The Smartlead-style campaign/inbox/API-key UI is in the app; engines (DNC, local windows, Drop.co, ElevenLabs) are wired — they light up when the keys below are set.
 
-**Railway project name:** `RVM Drop`  
-Infra items 2–4 (host, Postgres, cron) are provisioned on Railway. You still paste vendor API keys (item 1) and auth (item 5).
+**Railway project:** [RVM Drop](https://railway.com/project/83482725-c189-4aa8-8f6f-529e89a272f7)  
+**Live URL:** https://rvm-drop-production.up.railway.app  
+
+Infra items 2–4 (host, Postgres, cron) are live on Railway. You still paste vendor API keys (item 1) and auth (item 5).
 
 ## 1. Accounts & API keys (you provide)
 

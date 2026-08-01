@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #eef2f0;
+  --bg-elevated: #f7faf8;
+  --ink: #10231c;
+  --muted: #4d635a;
+  --line: #c5d2cb;
+  --accent: #0b7a5a;
+  --accent-soft: #cfeee3;
+  --warn: #9a6700;
+  --danger: #b42318;
+  --ok: #067647;
+  --grid: rgba(16, 35, 28, 0.045);
+}
+
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--ink);
+  --font-sans: var(--font-body);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-mono);
+}
+
+body {
+  background:
+    radial-gradient(900px 480px at 0% 0%, #d9efe6 0%, transparent 55%),
+    radial-gradient(800px 420px at 100% 10%, #dce7f2 0%, transparent 50%),
+    linear-gradient(180deg, #f4f7f5 0%, var(--bg) 45%, #e6ece9 100%);
+  color: var(--ink);
+  font-family: var(--font-body), system-ui, sans-serif;
+  min-height: 100%;
+}
+
+.grid-atmosphere {
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.panel {
+  background: color-mix(in oklab, var(--bg-elevated) 88%, white);
+  border: 1px solid var(--line);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.65) inset;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.badge-ok {
+  color: var(--ok);
+  border-color: color-mix(in oklab, var(--ok) 35%, var(--line));
+  background: #ecfdf3;
+}
+.badge-warn {
+  color: var(--warn);
+  border-color: color-mix(in oklab, var(--warn) 35%, var(--line));
+  background: #fffaeb;
+}
+.badge-danger {
+  color: var(--danger);
+  border-color: color-mix(in oklab, var(--danger) 35%, var(--line));
+  background: #fef3f2;
+}
+.badge-muted {
+  color: var(--muted);
+}

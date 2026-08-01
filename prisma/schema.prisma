@@ -1,0 +1,308 @@
+// Dropseq domain model — Smartlead-style sequencer for RVM
+// Delivery is pluggable; Twilio owns number inventory.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum LineStatus {
+  PROVISIONING
+  WARMING
+  HEALTHY
+  DEGRADED
+  QUARANTINED
+  RETIRED
+}
+
+enum DeliveryMode {
+  RVM_PROVIDER
+  TWILIO_AMD
+}
+
+enum DeliveryProvider {
+  VOICEDROP
+  DROP_COWBOY
+  SLYBROADCAST
+  TWILIO_AMD
+  MOCK
+}
+
+enum VoiceProvider {
+  CARTESIA
+  ELEVENLABS
+  UPLOAD
+  STOCK
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+enum LeadConsentStatus {
+  UNKNOWN
+  EXPRESS_WRITTEN
+  EXPRESS_ORAL
+  ESTABLISHED_BUSINESS
+  OPTED_OUT
+}
+
+enum AttemptStatus {
+  QUEUED
+  SKIPPED_CONSENT
+  SKIPPED_DNC
+  SKIPPED_TIMEZONE
+  SKIPPED_CAP
+  RENDERING
+  SENDING
+  DELIVERED
+  FAILED
+  HUMAN_ANSWERED
+  OPTED_OUT
+  CALLBACK
+}
+
+enum ReputationLabel {
+  UNFLAGGED
+  MIXED_LOW
+  MIXED_HIGH
+  FLAGGED
+  UNKNOWN
+}
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines      PhoneLine[]
+  campaigns  Campaign[]
+  voices     VoiceProfile[]
+  leads      Lead[]
+  providers  ProviderCredential[]
+}
+
+model ProviderCredential {
+  id          String           @id @default(cuid())
+  workspaceId String
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id])
+  provider    DeliveryProvider
+  // Encrypted JSON blob in production
+  configJson  Json
+  isDefault   Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@unique([workspaceId, provider])
+}
+
+model PhoneLine {
+  id              String     @id @default(cuid())
+  workspaceId     String
+  workspace       Workspace  @relation(fields: [workspaceId], references: [id])
+  twilioSid       String?
+  e164            String
+  friendlyName    String?
+  areaCode        String?
+  status          LineStatus @default(PROVISIONING)
+  warmupDay       Int        @default(0)
+  dailyCap        Int        @default(25)
+  targetDailyCap  Int        @default(80)
+  sentToday       Int        @default(0)
+  sentTodayDate   DateTime?  @db.Date
+  lifetimeSent    Int        @default(0)
+  deliveryRate7d  Float?
+  callbackRate7d  Float?
+  reputationLabel ReputationLabel @default(UNKNOWN)
+  lastReputationAt DateTime?
+  lastSentAt      DateTime?
+  registeredFcr   Boolean    @default(false)
+  voiceIntegrity  Boolean    @default(false)
+  stirShakenLevel String?
+  notes           String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  campaignLines CampaignLine[]
+  attempts      DeliveryAttempt[]
+  healthEvents  LineHealthEvent[]
+
+  @@unique([workspaceId, e164])
+  @@index([workspaceId, status])
+}
+
+model LineHealthEvent {
+  id        String   @id @default(cuid())
+  lineId    String
+  line      PhoneLine @relation(fields: [lineId], references: [id])
+  kind      String
+  detail    Json?
+  createdAt DateTime @default(now())
+
+  @@index([lineId, createdAt])
+}
+
+model VoiceProfile {
+  id           String        @id @default(cuid())
+  workspaceId  String
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id])
+  name         String
+  provider     VoiceProvider
+  externalId   String?
+  isClone      Boolean       @default(false)
+  sampleUrl    String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  audioAssets AudioAsset[]
+  steps       SequenceStep[]
+}
+
+model AudioAsset {
+  id          String        @id @default(cuid())
+  voiceId     String?
+  voice       VoiceProfile? @relation(fields: [voiceId], references: [id])
+  kind        String // static | intro_template | body
+  scriptText  String?
+  storageUrl  String
+  durationMs  Int?
+  charCount   Int?
+  createdAt   DateTime      @default(now())
+
+  steps SequenceStep[]
+}
+
+model Campaign {
+  id              String         @id @default(cuid())
+  workspaceId     String
+  workspace       Workspace      @relation(fields: [workspaceId], references: [id])
+  name            String
+  status          CampaignStatus @default(DRAFT)
+  deliveryMode    DeliveryMode   @default(RVM_PROVIDER)
+  deliveryProvider DeliveryProvider @default(MOCK)
+  timezone        String         @default("America/New_York")
+  sendWindowStart Int            @default(9) // local hour
+  sendWindowEnd   Int            @default(20)
+  sendDays        Int[]          @default([1, 2, 3, 4, 5]) // Mon-Fri
+  stopOnCallback  Boolean        @default(true)
+  stopOnOptOut    Boolean        @default(true)
+  requireConsent  Boolean        @default(true)
+  jitterSeconds   Int            @default(45)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  lines     CampaignLine[]
+  steps     SequenceStep[]
+  enrollments CampaignEnrollment[]
+  attempts  DeliveryAttempt[]
+}
+
+model CampaignLine {
+  campaignId String
+  lineId     String
+  campaign   Campaign  @relation(fields: [campaignId], references: [id])
+  line       PhoneLine @relation(fields: [lineId], references: [id])
+  priority   Int       @default(0)
+
+  @@id([campaignId, lineId])
+}
+
+model SequenceStep {
+  id            String      @id @default(cuid())
+  campaignId    String
+  campaign      Campaign    @relation(fields: [campaignId], references: [id])
+  position      Int
+  delayDays     Int         @default(0)
+  scriptTemplate String
+  voiceId       String?
+  voice         VoiceProfile? @relation(fields: [voiceId], references: [id])
+  audioAssetId  String?
+  audioAsset    AudioAsset? @relation(fields: [audioAssetId], references: [id])
+  personalize   Boolean     @default(true)
+
+  enrollments CampaignEnrollment[]
+  attempts    DeliveryAttempt[]
+
+  @@unique([campaignId, position])
+}
+
+model Lead {
+  id            String             @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace          @relation(fields: [workspaceId], references: [id])
+  phoneE164     String
+  firstName     String?
+  lastName      String?
+  company       String?
+  email         String?
+  timezone      String?
+  consentStatus LeadConsentStatus  @default(UNKNOWN)
+  consentSource String?
+  consentAt     DateTime?
+  dnc           Boolean            @default(false)
+  customJson    Json?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  enrollments CampaignEnrollment[]
+  attempts    DeliveryAttempt[]
+
+  @@unique([workspaceId, phoneE164])
+  @@index([workspaceId, dnc])
+}
+
+model CampaignEnrollment {
+  id           String    @id @default(cuid())
+  campaignId   String
+  campaign     Campaign  @relation(fields: [campaignId], references: [id])
+  leadId       String
+  lead         Lead      @relation(fields: [leadId], references: [id])
+  currentStepId String?
+  currentStep  SequenceStep? @relation(fields: [currentStepId], references: [id])
+  nextRunAt    DateTime?
+  completedAt  DateTime?
+  pausedAt     DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([campaignId, leadId])
+  @@index([nextRunAt])
+}
+
+model DeliveryAttempt {
+  id              String         @id @default(cuid())
+  campaignId      String
+  campaign        Campaign       @relation(fields: [campaignId], references: [id])
+  leadId          String
+  lead            Lead           @relation(fields: [leadId], references: [id])
+  stepId          String?
+  step            SequenceStep?  @relation(fields: [stepId], references: [id])
+  lineId          String?
+  line            PhoneLine?     @relation(fields: [lineId], references: [id])
+  status          AttemptStatus  @default(QUEUED)
+  provider        DeliveryProvider
+  providerMsgId   String?
+  audioUrl        String?
+  costEstimateUsd Float?
+  errorCode       String?
+  errorDetail     String?
+  scheduledAt     DateTime?
+  sentAt          DateTime?
+  deliveredAt     DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([campaignId, status])
+  @@index([lineId, sentAt])
+  @@index([providerMsgId])
+}

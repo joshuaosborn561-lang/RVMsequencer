@@ -71,6 +71,10 @@ export async function runAttempt(input: {
   stickyLineId?: string;
   /** Global suppression check (workspace-wide). */
   isSuppressed?: (phoneE164: string) => boolean | Promise<boolean>;
+  /** Status webhook URL passed to providers that support callbacks. */
+  callbackUrl?: string;
+  /** Idempotency / foreign id for provider + webhook reconcile. */
+  foreignId?: string;
 }): Promise<RunAttemptResult> {
   // 0) Global suppression list
   if (input.isSuppressed) {
@@ -149,7 +153,9 @@ export async function runAttempt(input: {
     toE164: input.lead.phoneE164,
     fromE164: line.e164,
     audioUrl,
-    foreignId: `${input.campaign.id}_${input.lead.id}`,
+    foreignId:
+      input.foreignId ?? `${input.campaign.id}_${input.lead.id}`,
+    callbackUrl: input.callbackUrl,
   });
 
   if (!sent.ok) {

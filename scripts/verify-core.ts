@@ -148,12 +148,6 @@ const j2 = humanizeSendAt(base, { salt: "lead_a" });
 assert.equal(j1.getTime(), j2.getTime());
 assert.ok(j1.getTime() >= base.getTime());
 
-// Rate limit trips after max
-const rlKey = `verify_${Date.now()}`;
-for (let i = 0; i < 3; i++) {
-  assert.equal(checkRateLimit(rlKey, { windowMs: 60_000, max: 3 }).ok, true);
-}
-assert.equal(checkRateLimit(rlKey, { windowMs: 60_000, max: 3 }).ok, false);
 
 // Compliance hard gates
 assert.equal(
@@ -248,6 +242,104 @@ assert.equal(timezoneFromPhone("+12125550123"), "America/New_York");
 assert.equal(timezoneFromPhone("+16025550123"), "America/Phoenix");
 
 async function main() {
+  // Rate limit trips after max (async — Redis or memory)
+  {
+    const rlKey = `verify_${Date.now()}`;
+    for (let i = 0; i < 3; i++) {
+      assert.equal(
+        (await checkRateLimit(rlKey, { windowMs: 60_000, max: 3 })).ok,
+        true,
+      );
+    }
+    assert.equal(
+      (await checkRateLimit(rlKey, { windowMs: 60_000, max: 3 })).ok,
+      false,
+    );
+  }
+
+  const { eagerScheduleCampaign, claimScheduledSends } = await import(
+    "../src/lib/store/scheduled"
+  );
+  const { poolExhausted } = await import("../src/lib/sequencer/rebalance");
+  const { stepIdempotencyKey } = await import(
+    "../src/lib/store/scheduled-types"
+  );
+
+  const camp = {
+    id: "cmp_verify",
+    name: "V",
+    status: "ACTIVE" as const,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    steps: [
+      {
+        id: "s1",
+        position: 1,
+        delayDays: 0,
+        scriptTemplate: "Hey {{first_name}}",
+      },
+      {
+        id: "s2",
+        position: 2,
+        delayDays: 2,
+        scriptTemplate: "Follow up {{first_name}}",
+      },
+    ],
+    lineIds: ["ln"],
+    schedule: {
+      sendWindowStart: 9,
+      sendWindowEnd: 20,
+      sendDays: [1, 2, 3, 4, 5],
+      timezoneMode: "RECIPIENT_LOCAL" as const,
+      newLeadsPerDay: 100,
+      requireConsent: false,
+      stopOnCallback: true,
+      stopOnOptOut: true,
+    },
+  };
+  const lead = {
+    id: "lead_verify",
+    campaignId: camp.id,
+    phoneE164: "+14155550123",
+    custom: {},
+    dnc: false,
+    consentStatus: "UNKNOWN" as const,
+    createdAt: new Date().toISOString(),
+    status: "PENDING" as const,
+  };
+  const sched = await eagerScheduleCampaign({
+    campaign: camp,
+    leads: [lead],
+    now: new Date("2026-08-01T12:00:00.000Z"),
+  });
+  assert.ok(sched.created >= 2);
+  assert.equal(stepIdempotencyKey(camp.id, lead.id, 2), "cmp_verify_lead_verify_step2");
+
+  const claimed = await claimScheduledSends({
+    campaignId: camp.id,
+    limit: 10,
+    owner: "verify",
+    now: new Date("2026-08-01T12:00:00.000Z"),
+  });
+  assert.equal(claimed.length, 1);
+  assert.equal(claimed[0]?.stepPosition, 1);
+
+  assert.equal(
+    poolExhausted([
+      {
+        id: "x",
+        e164: "+1",
+        status: "HEALTHY",
+        warmupDay: 10,
+        dailyCap: 1,
+        sentToday: 1,
+        reputationLabel: "UNFLAGGED",
+        minGapSec: 600,
+      },
+    ]),
+    true,
+  );
+
   const ok = await mockRvmProvider.send({
     toE164: "+15551234560",
     fromE164: "+14155550101",

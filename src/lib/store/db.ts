@@ -432,18 +432,21 @@ export async function suppressLeadByPhone(
     reason,
     source: opts?.source ?? (opts?.optOut ? "SMS_STOP" : "MANUAL"),
   });
-  return mutateStore((store) => {
-    let n = 0;
+  const n = await mutateStore((store) => {
+    let count = 0;
     for (const lead of store.leads) {
       if (lead.phoneE164 !== phoneE164) continue;
       lead.status = "SUPPRESSED";
       lead.suppressReason = reason;
       if (opts?.markDnc || opts?.optOut) lead.dnc = true;
       if (opts?.optOut) lead.consentStatus = "OPTED_OUT";
-      n += 1;
+      count += 1;
     }
-    return n;
+    return count;
   });
+  const { cancelScheduledForPhone } = await import("@/lib/store/scheduled");
+  await cancelScheduledForPhone(phoneE164, reason);
+  return n;
 }
 
 export async function createAttempt(input: {
@@ -504,6 +507,26 @@ export async function findSentAttempt(
         a.leadId === leadId &&
         a.status === "SENT",
     ) ?? null
+  );
+}
+
+export async function findAttemptByKey(
+  idempotencyKey: string,
+): Promise<AttemptRecord | null> {
+  const store = await readStoreUnlocked();
+  return store.attempts.find((a) => a.idempotencyKey === idempotencyKey) ?? null;
+}
+
+export async function findSentAttemptForStep(
+  campaignId: string,
+  leadId: string,
+  stepPosition: number,
+): Promise<AttemptRecord | null> {
+  const key = `${campaignId}_${leadId}_step${stepPosition}`;
+  const store = await readStoreUnlocked();
+  return (
+    store.attempts.find((a) => a.idempotencyKey === key && a.status === "SENT") ??
+    null
   );
 }
 

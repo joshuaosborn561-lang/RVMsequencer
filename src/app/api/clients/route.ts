@@ -10,7 +10,7 @@ export async function GET() {
 const Body = z.object({ name: z.string().min(1).max(120) });
 
 export async function POST(req: Request) {
-  const limited = guardApiRateLimit(req, "clients");
+  const limited = await guardApiRateLimit(req, "clients");
   if (limited) return limited;
   const parsed = Body.safeParse(await req.json());
   if (!parsed.success) {

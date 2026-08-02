@@ -6,6 +6,7 @@ import { scrubWithAll } from "@/lib/dnc/scrub";
 import { toE164 } from "@/lib/phone";
 import { guardApiRateLimit } from "@/lib/security/api-guard";
 import { getCampaign, importLeads, listLeads } from "@/lib/store/db";
+import { eagerScheduleCampaign } from "@/lib/store/scheduled";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -79,7 +80,7 @@ function rowToLead(
 }
 
 export async function POST(req: Request, ctx: Ctx) {
-  const limited = guardApiRateLimit(req, "leads");
+  const limited = await guardApiRateLimit(req, "leads");
   if (limited) return limited;
   const { id } = await ctx.params;
   const campaign = await getCampaign(id);
@@ -142,6 +143,11 @@ export async function POST(req: Request, ctx: Ctx) {
   }
 
   const result = await importLeads(id, normalized, { mode });
+  let scheduled: { created: number; existing: number } | undefined;
+  if (campaign.status === "ACTIVE") {
+    const leads = await listLeads(id);
+    scheduled = await eagerScheduleCampaign({ campaign, leads });
+  }
   return NextResponse.json({
     imported: result.imported,
     duplicates: result.duplicates,
@@ -149,5 +155,6 @@ export async function POST(req: Request, ctx: Ctx) {
     skipped,
     dncHits,
     mode,
+    scheduled,
   });
 }

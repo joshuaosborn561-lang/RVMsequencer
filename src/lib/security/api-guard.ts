@@ -5,11 +5,11 @@ import {
 } from "@/lib/security/rate-limit";
 
 /** Light per-IP rate limit for mutating API routes. */
-export function guardApiRateLimit(
+export async function guardApiRateLimit(
   req: Request,
   bucket = "api",
-): NextResponse | null {
-  const rl = checkRateLimit(`${bucket}:${clientKeyFromRequest(req)}`);
+): Promise<NextResponse | null> {
+  const rl = await checkRateLimit(`${bucket}:${clientKeyFromRequest(req)}`);
   if (!rl.ok) {
     return NextResponse.json(
       { error: "rate_limited", retryAfterSec: rl.retryAfterSec },

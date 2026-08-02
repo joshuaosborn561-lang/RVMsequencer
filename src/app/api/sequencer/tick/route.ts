@@ -93,7 +93,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const rl = checkRateLimit(`cron:${clientKeyFromRequest(req)}`, {
+  const rl = await checkRateLimit(`cron:${clientKeyFromRequest(req)}`, {
     windowMs: 60_000,
     max: 60,
   });

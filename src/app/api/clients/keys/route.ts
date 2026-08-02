@@ -14,7 +14,7 @@ const CreateBody = z.object({
 });
 
 export async function POST(req: Request) {
-  const limited = guardApiRateLimit(req, "keys");
+  const limited = await guardApiRateLimit(req, "keys");
   if (limited) return limited;
   const parsed = CreateBody.safeParse(await req.json());
   if (!parsed.success) {
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
 const RevokeBody = z.object({ id: z.string() });
 
 export async function DELETE(req: Request) {
-  const limited = guardApiRateLimit(req, "keys");
+  const limited = await guardApiRateLimit(req, "keys");
   if (limited) return limited;
   const parsed = RevokeBody.safeParse(await req.json());
   if (!parsed.success) {

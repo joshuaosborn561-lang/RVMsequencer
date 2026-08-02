@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCampaign, listLeads, updateCampaign } from "@/lib/store/db";
+import { eagerScheduleCampaign } from "@/lib/store/scheduled";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -115,5 +116,12 @@ export async function PATCH(req: Request, ctx: Ctx) {
       ? { schedule: { ...existing.schedule, ...schedulePatch } }
       : {}),
   });
-  return NextResponse.json({ campaign });
+
+  let scheduled: { created: number; existing: number } | undefined;
+  if (campaign && parsed.data.status === "ACTIVE") {
+    const leads = await listLeads(id);
+    scheduled = await eagerScheduleCampaign({ campaign, leads });
+  }
+
+  return NextResponse.json({ campaign, scheduled });
 }

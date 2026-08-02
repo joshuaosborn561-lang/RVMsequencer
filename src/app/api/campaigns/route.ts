@@ -14,7 +14,7 @@ const CreateBody = z.object({
 });
 
 export async function POST(req: Request) {
-  const limited = guardApiRateLimit(req, "campaigns");
+  const limited = await guardApiRateLimit(req, "campaigns");
   if (limited) return limited;
   const json: unknown = await req.json();
   const parsed = CreateBody.safeParse(json);

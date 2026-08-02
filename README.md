@@ -55,7 +55,7 @@ POST /api/sequencer/tick
 
 Also: `POST /api/scrub`, `POST /api/voice/render`, `GET /api/timezone?phone=`
 
-Hardening notes + peer-repo ideas: **`docs/HARDENING.md`**. Research: **`docs/RESEARCH.md`**.
+Hardening: **`docs/HARDENING.md`**. Go-live checklist: **`docs/LIVE.md`**. Research: **`docs/RESEARCH.md`**.
 
 ## Compliance
 

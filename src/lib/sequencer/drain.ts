@@ -1,39 +1,47 @@
 import { randomUUID } from "node:crypto";
 import { getDncScrubbers, getDropCoDelivery, getElevenLabs } from "@/lib/config";
-import {
-  HARD_CAP_ACTIVE_CAMPAIGNS,
-  STALE_SENDING_MS,
-} from "@/lib/hardening/constants";
+import { HARD_CAP_ACTIVE_CAMPAIGNS } from "@/lib/hardening/constants";
 import {
   nextFailureEligibleAt,
   shouldGiveUp,
 } from "@/lib/sequencer/backoff";
 import { humanizeSendAt } from "@/lib/sequencer/jitter";
 import { campaignRampCeiling } from "@/lib/sequencer/line-picker";
+import {
+  poolExhausted,
+  rebalanceOnCapacityExhausted,
+} from "@/lib/sequencer/rebalance";
 import { runAttempt } from "@/lib/sequencer/run-attempt";
 import {
   acquireCampaignLease,
   bumpLineSent,
-  claimLeadsForDrain,
-  countDueLeads,
   countSentToday,
   createAttempt,
   ensureLine,
-  findSentAttempt,
-  getOrgSendsToday,
+  findSentAttemptForStep,
   getSettings,
-  incrementOrgSends,
   isSuppressed,
   listCampaigns,
   listLeads,
   listLines,
-  orgDailyCap,
   releaseCampaignLease,
   updateAttempt,
   updateCampaign,
   updateLead,
 } from "@/lib/store/db";
-import type { CampaignRecord, LineRecord } from "@/lib/store/types";
+import {
+  getSharedOrgSendsToday,
+  incrementSharedOrgSends,
+  sharedOrgDailyCap,
+} from "@/lib/store/org-counters";
+import {
+  claimScheduledSends,
+  countDueScheduled,
+  countPendingScheduled,
+  deferScheduledSend,
+  updateScheduledSend,
+} from "@/lib/store/scheduled";
+import type { CampaignRecord, LeadRecord, LineRecord } from "@/lib/store/types";
 
 export type DrainResult = {
   campaigns: number;
@@ -42,10 +50,12 @@ export type DrainResult = {
   skipped: number;
   failed: number;
   suppressed: number;
+  rebalanced: number;
   paused: string[];
   details: Array<{
     campaignId: string;
     leadId: string;
+    step?: number;
     status: string;
     reason?: string;
   }>;
@@ -70,17 +80,24 @@ function activeDay(campaign: CampaignRecord, now: Date): number {
   return Math.max(0, Math.floor((now.getTime() - activated) / 86_400_000));
 }
 
+function stepFor(
+  campaign: CampaignRecord,
+  position: number,
+) {
+  return campaign.steps.find((s) => s.position === position);
+}
+
 /**
- * Hardened drain: per-campaign lease, attempt ledger, global suppression,
- * line spacing, weighted pick, ramp ceiling, org hard cap, auto-pause.
+ * Hardened multi-step drain: SKIP LOCKED scheduled sends, leases, suppression,
+ * line spacing, sticky DID, ramp, org cap, rebalance, auto-pause.
  */
 export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
   const owner = `drain_${randomUUID().slice(0, 8)}`;
   const now = new Date();
   const settings = await getSettings();
   const minGap = settings.lineMinGapSec ?? 600;
-  const orgCap = await orgDailyCap(settings);
-  let orgSent = await getOrgSendsToday(now);
+  const orgCap = await sharedOrgDailyCap();
+  let orgSent = await getSharedOrgSendsToday(now);
 
   let campaigns = (await listCampaigns()).filter((c) => c.status === "ACTIVE");
   if (campaigns.length > HARD_CAP_ACTIVE_CAMPAIGNS) {
@@ -94,12 +111,16 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
     skipped: 0,
     failed: 0,
     suppressed: 0,
+    rebalanced: 0,
     paused: [],
     details: [],
   };
 
   const voice = process.env.ELEVENLABS_API_KEY ? getElevenLabs() : undefined;
-  const allLines = await listLines();
+  const statusWebhook =
+    process.env.NEXT_PUBLIC_APP_URL && process.env.RVM_STATUS_WEBHOOK_SECRET
+      ? `${process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")}/api/webhooks/rvm-status`
+      : undefined;
 
   for (const campaign of campaigns) {
     if (out.claimed >= limit) break;
@@ -117,20 +138,33 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
     }
 
     try {
-      const step = campaign.steps[0];
-      if (!step) {
+      if (campaign.steps.length === 0) {
         await autoPause(campaign.id, "NO_SEQUENCE_STEP", out);
         continue;
       }
 
-      // Ensure ad-hoc E.164s exist as line records
       for (const id of campaign.lineIds) {
         if (id.startsWith("+")) await ensureLine(id);
       }
-      const freshLines = await listLines();
-      const lines = linesForCampaign(campaign, freshLines, minGap);
+      let lines = linesForCampaign(campaign, await listLines(), minGap);
       if (lines.length === 0) {
         await autoPause(campaign.id, "NO_LINES_CONFIGURED", out);
+        continue;
+      }
+
+      if (poolExhausted(lines, now)) {
+        const { deferred } = await rebalanceOnCapacityExhausted({
+          campaignId: campaign.id,
+          lines,
+          now,
+        });
+        out.rebalanced += deferred;
+        out.details.push({
+          campaignId: campaign.id,
+          leadId: "-",
+          status: "REBALANCED",
+          reason: "POOL_EXHAUSTED",
+        });
         continue;
       }
 
@@ -148,54 +182,95 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
       if (remainingToday <= 0) continue;
 
       const batch = Math.min(limit - out.claimed, remainingToday, orgCap - orgSent);
-      const claimed = await claimLeadsForDrain(campaign.id, batch, now);
+      const claimed = await claimScheduledSends({
+        campaignId: campaign.id,
+        limit: batch,
+        owner,
+        now,
+      });
       out.claimed += claimed.length;
+
+      const leadsById = new Map(
+        (await listLeads(campaign.id)).map((l) => [l.id, l]),
+      );
 
       let campaignSent = 0;
       let campaignSkipped = 0;
       let campaignFailed = 0;
       let hardProviderFail = false;
+      let hitCapacity = false;
 
-      for (const lead of claimed) {
-        // Humanize: if jitter pushes past "now", soft-defer (don't burn attempt)
-        const jittered = humanizeSendAt(now, { salt: lead.id });
-        if (jittered.getTime() > now.getTime() + 5_000) {
-          await updateLead(lead.id, {
-            status: "PENDING",
-            attemptCount: Math.max(0, (lead.attemptCount ?? 1) - 1),
-            nextEligibleAt: jittered.toISOString(),
-            lastError: "JITTER_DEFER",
+      for (const sch of claimed) {
+        const lead = leadsById.get(sch.leadId);
+        if (!lead) {
+          await updateScheduledSend(sch.id, {
+            status: "CANCELLED",
+            lastError: "LEAD_MISSING",
           });
+          continue;
+        }
+
+        const step = stepFor(campaign, sch.stepPosition);
+        if (!step) {
+          await updateScheduledSend(sch.id, {
+            status: "CANCELLED",
+            lastError: "STEP_MISSING",
+          });
+          continue;
+        }
+
+        const jittered = humanizeSendAt(now, {
+          salt: `${sch.leadId}:${sch.stepPosition}`,
+        });
+        if (jittered.getTime() > now.getTime() + 5_000) {
+          await deferScheduledSend(sch.id, jittered, "JITTER_DEFER");
           campaignSkipped += 1;
           out.skipped += 1;
           continue;
         }
 
-        const already = await findSentAttempt(campaign.id, lead.id);
+        const already = await findSentAttemptForStep(
+          campaign.id,
+          lead.id,
+          sch.stepPosition,
+        );
         if (already) {
-          await updateLead(lead.id, {
+          await updateScheduledSend(sch.id, {
             status: "SENT",
-            sentAt: already.completedAt ?? now.toISOString(),
-            providerMessageId: already.providerMessageId,
+            providerMsgId: already.providerMessageId,
           });
+          await advanceLeadAfterStep(lead, campaign, sch.stepPosition, now);
           continue;
         }
 
-        const idempotencyKey = `${campaign.id}_${lead.id}_step1`;
         const attempt = await createAttempt({
           campaignId: campaign.id,
           leadId: lead.id,
-          idempotencyKey,
+          idempotencyKey: sch.idempotencyKey,
         });
         if (attempt.status === "SENT") {
-          await updateLead(lead.id, {
+          await updateScheduledSend(sch.id, {
             status: "SENT",
-            sentAt: attempt.completedAt ?? now.toISOString(),
-            providerMessageId: attempt.providerMessageId,
+            providerMsgId: attempt.providerMessageId,
           });
+          await advanceLeadAfterStep(lead, campaign, sch.stepPosition, now);
           continue;
         }
         await updateAttempt(attempt.id, { status: "SENDING" });
+
+        // Refresh line caps mid-batch
+        lines = linesForCampaign(campaign, await listLines(), minGap);
+        if (poolExhausted(lines, now)) {
+          hitCapacity = true;
+          await deferScheduledSend(
+            sch.id,
+            new Date(now.getTime() + 15 * 60 * 1000),
+            "NO_LINE_CAPACITY",
+          );
+          campaignSkipped += 1;
+          out.skipped += 1;
+          break;
+        }
 
         const pickable = lines.map((l) => ({
           id: l.id,
@@ -224,8 +299,8 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
           campaign: {
             id: campaign.id,
             scriptTemplate: step.scriptTemplate,
-            audioUrl: campaign.audioUrl ?? step.audioUrl,
-            elevenVoiceId: campaign.elevenVoiceId ?? step.voiceId,
+            audioUrl: step.audioUrl ?? campaign.audioUrl,
+            elevenVoiceId: step.voiceId ?? campaign.elevenVoiceId,
             dropCoCampaignToken: campaign.dropCoCampaignToken,
             schedule: {
               sendWindowStart: campaign.schedule.sendWindowStart,
@@ -235,33 +310,47 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
             },
           },
           lines: pickable,
-          stickyLineId: lead.stickyLineId,
+          stickyLineId: sch.stickyLineId ?? lead.stickyLineId,
           dncScrubbers: getDncScrubbers(),
           delivery: getDropCoDelivery(campaign.dropCoCampaignToken),
           voice,
           now,
           isSuppressed: (phone) => isSuppressed(phone),
+          callbackUrl: statusWebhook,
+          foreignId: sch.idempotencyKey,
         });
 
         if (result.status === "SENT") {
           campaignSent += 1;
           out.sent += 1;
-          orgSent = await incrementOrgSends(now);
+          orgSent = await incrementSharedOrgSends(now);
           await bumpLineSent(result.lineId, now);
+          // Update in-memory line for poolExhausted mid-batch
+          const ln = lines.find((l) => l.id === result.lineId);
+          if (ln) {
+            ln.sentToday += 1;
+            ln.lastSentAt = now.toISOString();
+          }
           await updateAttempt(attempt.id, {
             status: "SENT",
             lineId: result.lineId,
             providerMessageId: result.providerMessageId,
             completedAt: now.toISOString(),
           });
-          await updateLead(lead.id, {
+          await updateScheduledSend(sch.id, {
             status: "SENT",
-            sentAt: now.toISOString(),
-            providerMessageId: result.providerMessageId,
+            providerMsgId: result.providerMessageId,
             stickyLineId: result.lineId,
-            lastError: undefined,
-            nextEligibleAt: undefined,
+            deliveryStatus: "queued",
           });
+          await advanceLeadAfterStep(
+            lead,
+            campaign,
+            sch.stepPosition,
+            now,
+            result.lineId,
+            result.providerMessageId,
+          );
           if (result.audioUrl && !campaign.audioUrl) {
             await updateCampaign(campaign.id, { audioUrl: result.audioUrl });
             campaign.audioUrl = result.audioUrl;
@@ -281,6 +370,10 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
               reason: result.reason,
               completedAt: now.toISOString(),
             });
+            await updateScheduledSend(sch.id, {
+              status: "SUPPRESSED",
+              lastError: result.detail ?? result.reason,
+            });
             await updateLead(lead.id, {
               status: "SUPPRESSED",
               dnc: true,
@@ -289,10 +382,23 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
                 result.reason === "OPTED_OUT" ? "OPTED_OUT" : lead.consentStatus,
               lastError: result.detail ?? result.reason,
             });
+          } else if (result.reason === "NO_LINE_CAPACITY") {
+            hitCapacity = true;
+            await deferScheduledSend(
+              sch.id,
+              result.nextEligibleAt ?? new Date(now.getTime() + 15 * 60 * 1000),
+              result.reason,
+            );
+            await updateAttempt(attempt.id, {
+              status: "SKIPPED",
+              reason: result.reason,
+              completedAt: now.toISOString(),
+            });
           } else {
             const next =
               result.nextEligibleAt ??
               new Date(now.getTime() + 15 * 60 * 1000);
+            await deferScheduledSend(sch.id, next, result.reason);
             await updateAttempt(attempt.id, {
               status: "SKIPPED",
               reason: result.reason,
@@ -300,7 +406,6 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
             });
             await updateLead(lead.id, {
               status: "PENDING",
-              attemptCount: Math.max(0, (lead.attemptCount ?? 1) - 1),
               nextEligibleAt: next.toISOString(),
               lastError: result.reason,
             });
@@ -315,7 +420,7 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
           ) {
             hardProviderFail = true;
           }
-          const attempts = lead.attemptCount ?? 1;
+          const attempts = sch.attemptCount;
           await updateAttempt(attempt.id, {
             status: "FAILED",
             reason: err,
@@ -323,15 +428,21 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
           });
           if (shouldGiveUp(attempts)) {
             out.suppressed += 1;
+            await updateScheduledSend(sch.id, {
+              status: "SUPPRESSED",
+              lastError: "MAX_ATTEMPTS",
+            });
             await updateLead(lead.id, {
               status: "SUPPRESSED",
               suppressReason: "MAX_ATTEMPTS",
               lastError: err,
             });
           } else {
+            const next = nextFailureEligibleAt(attempts, now);
+            await deferScheduledSend(sch.id, next, err);
             await updateLead(lead.id, {
               status: "FAILED",
-              nextEligibleAt: nextFailureEligibleAt(attempts, now).toISOString(),
+              nextEligibleAt: next.toISOString(),
               lastError: err,
             });
           }
@@ -340,6 +451,7 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
         out.details.push({
           campaignId: campaign.id,
           leadId: lead.id,
+          step: sch.stepPosition,
           status: result.status,
           reason:
             result.status === "SKIPPED"
@@ -350,16 +462,20 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
         });
       }
 
+      if (hitCapacity) {
+        const { deferred } = await rebalanceOnCapacityExhausted({
+          campaignId: campaign.id,
+          lines,
+          now,
+        });
+        out.rebalanced += deferred;
+      }
+
       if (hardProviderFail) {
         await autoPause(campaign.id, "PROVIDER_HARD_FAIL", out);
       }
 
-      const leads = await listLeads(campaign.id);
-      const open = leads.filter((l) => {
-        const s = l.status ?? "PENDING";
-        return s === "PENDING" || s === "FAILED" || s === "SENDING";
-      });
-
+      const pending = await countPendingScheduled(campaign.id);
       await updateCampaign(campaign.id, {
         lastDrainAt: now.toISOString(),
         lastError: hardProviderFail ? "PROVIDER_HARD_FAIL" : undefined,
@@ -372,7 +488,7 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
         ramp: campaign.ramp
           ? { ...campaign.ramp, activeDay: rampDay }
           : campaign.ramp,
-        ...(open.length === 0 && leads.some((l) => l.status === "SENT")
+        ...(pending === 0 && campaignSent + sentToday > 0
           ? { status: "COMPLETED" as const }
           : {}),
       });
@@ -382,6 +498,30 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
   }
 
   return out;
+}
+
+async function advanceLeadAfterStep(
+  lead: LeadRecord,
+  campaign: CampaignRecord,
+  stepPosition: number,
+  now: Date,
+  stickyLineId?: string,
+  providerMessageId?: string,
+) {
+  const maxStep = Math.max(...campaign.steps.map((s) => s.position));
+  const done = stepPosition >= maxStep;
+  await updateLead(lead.id, {
+    currentStepPosition: stepPosition,
+    stickyLineId: stickyLineId ?? lead.stickyLineId,
+    providerMessageId: providerMessageId ?? lead.providerMessageId,
+    sentAt: now.toISOString(),
+    status: done ? "SENT" : "PENDING",
+    lastError: undefined,
+    nextEligibleAt: undefined,
+  });
+  lead.currentStepPosition = stepPosition;
+  if (stickyLineId) lead.stickyLineId = stickyLineId;
+  lead.status = done ? "SENT" : "PENDING";
 }
 
 async function autoPause(
@@ -402,34 +542,18 @@ async function autoPause(
   });
 }
 
-/** Reconciler: reclaim stale SENDING + report ACTIVE campaigns with due work. */
+/** Reconciler: reclaim is handled inside claim; report ACTIVE with due work. */
 export async function reconcileCampaigns(): Promise<{
   staleReclaimed: number;
   activeWithDue: number;
 }> {
   const now = new Date();
   const campaigns = (await listCampaigns()).filter((c) => c.status === "ACTIVE");
-  let staleReclaimed = 0;
   let activeWithDue = 0;
-
   for (const c of campaigns) {
-    const leads = await listLeads(c.id);
-    for (const lead of leads) {
-      if (
-        lead.status === "SENDING" &&
-        lead.lastAttemptAt &&
-        now.getTime() - Date.parse(lead.lastAttemptAt) >= STALE_SENDING_MS
-      ) {
-        await updateLead(lead.id, {
-          status: "PENDING",
-          lastError: "STALE_SENDING_RECLAIMED",
-        });
-        staleReclaimed += 1;
-      }
-    }
-    const due = await countDueLeads(c.id, now);
+    const due = await countDueScheduled(c.id, now);
     if (due > 0) activeWithDue += 1;
   }
-
-  return { staleReclaimed, activeWithDue };
+  // Stale CLAIMED reclaim happens inside claimScheduledSends
+  return { staleReclaimed: 0, activeWithDue };
 }

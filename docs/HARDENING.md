@@ -102,9 +102,12 @@ IMAP-keyword MCP sequencer: terminal reply tags, Message-ID idempotent Sent appe
 
 ---
 
-## Next upgrades (Postgres path)
+## Shipped upgrades (Postgres / Redis path)
 
-1. Replace file claim with `FOR UPDATE SKIP LOCKED` on due enrollments.
-2. Eager `scheduled_sends` for multi-step sequences (cold-cli).
-3. Redis (or Railway Redis) for multi-instance rate limits + org counters.
-4. Provider status webhook → attempt reconciler.
+1. `ScheduledSend` queue + `FOR UPDATE SKIP LOCKED` claim (`src/lib/store/scheduled.ts`)
+2. Eager multi-step schedule on launch/import
+3. Redis shared rate limits + org counters (Postgres/file fallback)
+4. Provider status webhooks → attempt reconciler (`/api/webhooks/rvm-status`, Twilio status)
+5. Capacity rebalance when line pool exhausted
+
+See **`docs/LIVE.md`** for production wiring.

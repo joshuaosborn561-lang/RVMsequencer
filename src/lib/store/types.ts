@@ -109,6 +109,8 @@ export type LeadRecord = {
   suppressReason?: string;
   /** Sticky line for follow-ups (Warmbly / cold-cli pattern). */
   stickyLineId?: string;
+  /** Current / last completed sequence step position. */
+  currentStepPosition?: number;
 };
 
 export type AttemptRecord = {

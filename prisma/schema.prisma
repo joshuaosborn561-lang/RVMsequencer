@@ -421,3 +421,47 @@ model DeliveryAttempt {
   @@index([providerMsgId])
   @@index([leadId, status])
 }
+
+/// Durable send queue — claimed with FOR UPDATE SKIP LOCKED.
+/// IDs reference the file-store (or Prisma) campaign/lead without FK coupling.
+enum ScheduledSendStatus {
+  PENDING
+  CLAIMED
+  SENT
+  SKIPPED
+  FAILED
+  CANCELLED
+  SUPPRESSED
+}
+
+model ScheduledSend {
+  id             String              @id @default(cuid())
+  campaignId     String
+  leadId         String
+  stepPosition   Int
+  phoneE164      String
+  stickyLineId   String?
+  status         ScheduledSendStatus @default(PENDING)
+  runAt          DateTime
+  claimedAt      DateTime?
+  claimOwner     String?
+  idempotencyKey String              @unique
+  providerMsgId  String?
+  lastError      String?
+  attemptCount   Int                 @default(0)
+  deliveryStatus String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([status, runAt])
+  @@index([campaignId, status, runAt])
+  @@index([providerMsgId])
+  @@index([leadId, stepPosition])
+}
+
+/// Org daily send counter when Redis is unavailable.
+model OrgDailyCounter {
+  dateKey String @id
+  sends   Int    @default(0)
+  updatedAt DateTime @updatedAt
+}

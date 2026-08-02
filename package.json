@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "prisma generate && next build",
     "start": "next start -p ${PORT:-3000}",
-    "start:railway": "prisma db push --skip-generate && next start -p ${PORT:-3000}",
+    "start:railway": "prisma db push --skip-generate --accept-data-loss && next start -p ${PORT:-3000}",
     "lint": "eslint",
     "verify": "tsx scripts/verify-core.ts",
     "db:generate": "prisma generate",

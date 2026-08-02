@@ -4,7 +4,7 @@ builder = "RAILPACK"
 buildCommand = "pnpm install --frozen-lockfile && pnpm exec prisma generate && pnpm exec next build"
 
 [deploy]
-startCommand = "pnpm exec prisma db push --skip-generate && pnpm exec next start -p $PORT"
+startCommand = "pnpm exec prisma db push --skip-generate --accept-data-loss && pnpm exec next start -p $PORT"
 healthcheckPath = "/api/health"
 healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"

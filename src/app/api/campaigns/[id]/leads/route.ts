@@ -4,6 +4,7 @@ import { getDncScrubbers } from "@/lib/config";
 import { parseCsv } from "@/lib/csv";
 import { scrubWithAll } from "@/lib/dnc/scrub";
 import { toE164 } from "@/lib/phone";
+import { guardApiRateLimit } from "@/lib/security/api-guard";
 import { getCampaign, importLeads, listLeads } from "@/lib/store/db";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -78,6 +79,8 @@ function rowToLead(
 }
 
 export async function POST(req: Request, ctx: Ctx) {
+  const limited = guardApiRateLimit(req, "leads");
+  if (limited) return limited;
   const { id } = await ctx.params;
   const campaign = await getCampaign(id);
   if (!campaign) {

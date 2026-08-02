@@ -23,6 +23,8 @@ export async function GET() {
 const Body = z.object({
   callForwardToE164: z.union([z.string(), z.null()]).optional(),
   callForwardTimeoutSec: z.number().int().min(5).max(120).optional(),
+  hardCapDailySends: z.number().int().min(1).max(100_000).optional(),
+  lineMinGapSec: z.number().int().min(0).max(86_400).optional(),
 });
 
 export async function PATCH(req: Request) {
@@ -34,10 +36,18 @@ export async function PATCH(req: Request) {
   const patch: {
     callForwardToE164?: string;
     callForwardTimeoutSec?: number;
+    hardCapDailySends?: number;
+    lineMinGapSec?: number;
   } = {};
 
   if (parsed.data.callForwardTimeoutSec != null) {
     patch.callForwardTimeoutSec = parsed.data.callForwardTimeoutSec;
+  }
+  if (parsed.data.hardCapDailySends != null) {
+    patch.hardCapDailySends = parsed.data.hardCapDailySends;
+  }
+  if (parsed.data.lineMinGapSec != null) {
+    patch.lineMinGapSec = parsed.data.lineMinGapSec;
   }
 
   if (parsed.data.callForwardToE164 !== undefined) {

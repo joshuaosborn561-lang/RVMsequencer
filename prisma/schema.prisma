@@ -84,16 +84,20 @@ enum ReputationLabel {
 model Workspace {
   id        String   @id @default(cuid())
   name      String
+  /// Org-wide hard cap on RVM deposits per UTC day.
+  hardCapDailySends Int @default(1000)
+  lineMinGapSec     Int @default(600)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  lines      PhoneLine[]
-  campaigns  Campaign[]
-  voices     VoiceProfile[]
-  leads      Lead[]
-  providers  ProviderCredential[]
-  clients    Client[]
-  inbox      InboxMessage[]
+  lines         PhoneLine[]
+  campaigns     Campaign[]
+  voices        VoiceProfile[]
+  leads         Lead[]
+  providers     ProviderCredential[]
+  clients       Client[]
+  inbox         InboxMessage[]
+  suppressions  Suppression[]
 }
 
 /// Book-of-business tenant under a workspace (agency → client).
@@ -200,6 +204,8 @@ model PhoneLine {
   reputationLabel ReputationLabel @default(UNKNOWN)
   lastReputationAt DateTime?
   lastSentAt      DateTime?
+  /// Min seconds between deposits on this DID (mailbox spacing).
+  minGapSec       Int        @default(600)
   registeredFcr   Boolean    @default(false)
   voiceIntegrity  Boolean    @default(false)
   stirShakenLevel String?
@@ -275,6 +281,16 @@ model Campaign {
   // Soft by default (cold-call / grey-area operator posture). DNC still hard-gated in code.
   requireConsent  Boolean        @default(false)
   jitterSeconds   Int            @default(45)
+  /// Warmbly-style ramp — can only LOWER volume vs line pool.
+  rampEnabled     Boolean        @default(false)
+  rampStartPerDay Int            @default(25)
+  rampIncrementPerDay Int        @default(25)
+  rampCeilingPerDay Int          @default(200)
+  rampActivatedAt DateTime?
+  /// Advisory lease for concurrent drain workers.
+  leaseOwner      String?
+  leaseUntil      DateTime?
+  lastError       String?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -284,6 +300,7 @@ model Campaign {
   attempts  DeliveryAttempt[]
 
   @@index([clientId])
+  @@index([status, leaseUntil])
 }
 
 model CampaignLine {
@@ -330,6 +347,7 @@ model Lead {
   consentAt     DateTime?
   dnc           Boolean            @default(false)
   customJson    Json?
+  stickyLineId  String?
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
 
@@ -338,6 +356,20 @@ model Lead {
 
   @@unique([workspaceId, phoneE164])
   @@index([workspaceId, dnc])
+}
+
+/// Workspace-wide suppression (DNC / STOP / callback / scrub).
+model Suppression {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  phoneE164   String
+  reason      String
+  source      String
+  createdAt   DateTime @default(now())
+
+  @@unique([workspaceId, phoneE164])
+  @@index([phoneE164])
 }
 
 model CampaignEnrollment {
@@ -375,13 +407,17 @@ model DeliveryAttempt {
   costEstimateUsd Float?
   errorCode       String?
   errorDetail     String?
+  /// Natural key for idempotent send (campaign_lead_step).
+  idempotencyKey  String?
   scheduledAt     DateTime?
   sentAt          DateTime?
   deliveredAt     DateTime?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
+  @@unique([idempotencyKey])
   @@index([campaignId, status])
   @@index([lineId, sentAt])
   @@index([providerMsgId])
+  @@index([leadId, status])
 }

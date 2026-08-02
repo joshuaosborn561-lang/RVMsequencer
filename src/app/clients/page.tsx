@@ -55,7 +55,7 @@ export default function ClientsPage() {
       body: JSON.stringify({ clientId, name: keyName.trim() || "Default" }),
     });
     const data = (await res.json()) as { key: ApiKeyRecord };
-    setFreshKey(data.key.key);
+    setFreshKey(data.key.key ?? null);
     setBusy(false);
     await load();
   }
@@ -124,8 +124,8 @@ export default function ClientsPage() {
             API keys
           </h2>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Creating a key shows the secret once. Store it — we only keep it in
-            the local file store for now (hash in production).
+            Creating a key shows the secret once. We store only a SHA-256 hash
+            and a short prefix for display.
           </p>
           <div className="mt-4 flex flex-col gap-3">
             <label className="flex flex-col gap-1.5 text-sm">
@@ -184,7 +184,7 @@ export default function ClientsPage() {
                   <div>
                     <p className="font-medium">{k.name}</p>
                     <p className="text-xs text-[var(--muted)]">
-                      {k.clientId} · {k.key.slice(0, 10)}…
+                      {k.clientId} · {k.keyPrefix}…
                     </p>
                   </div>
                   <button

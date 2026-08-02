@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { guardApiRateLimit } from "@/lib/security/api-guard";
 import { createCampaign, listCampaigns } from "@/lib/store/db";
 
 export async function GET() {
@@ -13,6 +14,8 @@ const CreateBody = z.object({
 });
 
 export async function POST(req: Request) {
+  const limited = guardApiRateLimit(req, "campaigns");
+  if (limited) return limited;
   const json: unknown = await req.json();
   const parsed = CreateBody.safeParse(json);
   if (!parsed.success) {

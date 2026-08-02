@@ -1,8 +1,16 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getDncScrubbers, getDropCoDelivery, getElevenLabs } from "@/lib/config";
-import { drainActiveCampaigns } from "@/lib/sequencer/drain";
+import {
+  checkRateLimit,
+  clientKeyFromRequest,
+} from "@/lib/security/rate-limit";
+import {
+  drainActiveCampaigns,
+  reconcileCampaigns,
+} from "@/lib/sequencer/drain";
 import { runAttempt } from "@/lib/sequencer/run-attempt";
+import { isSuppressed } from "@/lib/store/db";
 
 function authorizeCron(req: Request): boolean {
   const secret = process.env.CRON_SECRET;
@@ -66,19 +74,34 @@ const SingleBody = z.object({
         "FLAGGED",
         "UNKNOWN",
       ]),
+      warmupDay: z.number().int().optional(),
+      lastSentAt: z.string().optional().nullable(),
+      minGapSec: z.number().int().optional(),
     }),
   ),
+  stickyLineId: z.string().optional(),
   internalBlocked: z.array(z.string()).optional(),
 });
 
 /**
  * Sequencer tick:
- * - Cron / `{ "drain": true, "limit": N }` → drain ACTIVE campaigns from store
+ * - Cron / `{ "drain": true, "limit": N }` → reconcile + drain ACTIVE campaigns
  * - Full lead+campaign body → single attempt (tests / manual)
  */
 export async function POST(req: Request) {
   if (!authorizeCron(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  const rl = checkRateLimit(`cron:${clientKeyFromRequest(req)}`, {
+    windowMs: 60_000,
+    max: 60,
+  });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "rate_limited", retryAfterSec: rl.retryAfterSec },
+      { status: 429, headers: { "retry-after": String(rl.retryAfterSec) } },
+    );
   }
 
   const raw = await req.text();
@@ -105,8 +128,9 @@ export async function POST(req: Request) {
       typeof (json as { limit: unknown }).limit === "number"
         ? Math.min(200, Math.max(1, (json as { limit: number }).limit))
         : 25;
+    const reconcile = await reconcileCampaigns();
     const result = await drainActiveCampaigns(limit);
-    return NextResponse.json({ mode: "drain", ...result });
+    return NextResponse.json({ mode: "drain", reconcile, ...result });
   }
 
   const parsed = SingleBody.safeParse(json);
@@ -114,14 +138,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { lead, campaign, lines, internalBlocked } = parsed.data;
+  const { lead, campaign, lines, stickyLineId, internalBlocked } = parsed.data;
   const result = await runAttempt({
     lead,
     campaign,
     lines,
+    stickyLineId,
     dncScrubbers: getDncScrubbers(internalBlocked ?? []),
     delivery: getDropCoDelivery(campaign.dropCoCampaignToken),
     voice: process.env.ELEVENLABS_API_KEY ? getElevenLabs() : undefined,
+    isSuppressed: (phone) => isSuppressed(phone),
   });
 
   return NextResponse.json({ mode: "single", ...result });

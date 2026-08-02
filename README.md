@@ -44,16 +44,18 @@ pnpm build
 
 ```
 POST /api/sequencer/tick
-  → DNC scrub (internal + The DNC Project)
-  → recipient-local send window (phone NPA → IANA TZ)
-  → line picker (cap + local presence + health)
-  → ElevenLabs audio (generate once, cache by hash)
+  → reconcile stale SENDING + campaign leases
+  → claim due leads (attempt ledger + org/ramp caps)
+  → global suppression + DNC scrub
+  → recipient-local send window + send jitter
+  → line picker (min gap + sticky + weighted)
+  → ElevenLabs audio (generate once)
   → Drop.co VMDropPostRecords
 ```
 
 Also: `POST /api/scrub`, `POST /api/voice/render`, `GET /api/timezone?phone=`
 
-Full research: **`docs/RESEARCH.md`**.
+Hardening notes + peer-repo ideas: **`docs/HARDENING.md`**. Research: **`docs/RESEARCH.md`**.
 
 ## Compliance
 

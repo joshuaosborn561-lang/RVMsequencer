@@ -47,7 +47,8 @@ export type RunAttemptResult =
         | "OUTSIDE_SEND_WINDOW"
         | "OUTSIDE_SEND_DAYS"
         | "NO_LINE_CAPACITY"
-        | "SCRUB_BLOCKED";
+        | "SCRUB_BLOCKED"
+        | "SUPPRESSED";
       nextEligibleAt?: Date;
       timezone?: string;
       detail?: string;
@@ -56,7 +57,7 @@ export type RunAttemptResult =
 
 /**
  * One sequencer tick for a single enrollment:
- * DNC scrub → local-time send window → line pick → ensure audio → Drop.co send.
+ * suppress → DNC scrub → local-time send window → line pick → ensure audio → Drop.co send.
  */
 export async function runAttempt(input: {
   lead: AttemptLead;
@@ -66,7 +67,19 @@ export async function runAttempt(input: {
   delivery: RvmDeliveryProvider;
   voice?: VoiceProviderClient;
   now?: Date;
+  /** Prefer this line for follow-ups if still eligible. */
+  stickyLineId?: string;
+  /** Global suppression check (workspace-wide). */
+  isSuppressed?: (phoneE164: string) => boolean | Promise<boolean>;
 }): Promise<RunAttemptResult> {
+  // 0) Global suppression list
+  if (input.isSuppressed) {
+    const blocked = await input.isSuppressed(input.lead.phoneE164);
+    if (blocked) {
+      return { status: "SKIPPED", reason: "SUPPRESSED", detail: "GLOBAL_SUPPRESSION" };
+    }
+  }
+
   // 1) Internal flag + external scrub
   if (input.lead.dnc || input.lead.consentStatus === "OPTED_OUT") {
     return { status: "SKIPPED", reason: input.lead.dnc ? "DNC" : "OPTED_OUT" };
@@ -100,8 +113,11 @@ export async function runAttempt(input: {
     };
   }
 
-  // 3) Line pool rotation
-  const line = pickLine(input.lines, input.lead.phoneE164);
+  // 3) Line pool rotation (sticky → weighted / gap-aware)
+  const line = pickLine(input.lines, input.lead.phoneE164, {
+    now: input.now,
+    stickyLineId: input.stickyLineId,
+  });
   if (!line) {
     return { status: "SKIPPED", reason: "NO_LINE_CAPACITY" };
   }

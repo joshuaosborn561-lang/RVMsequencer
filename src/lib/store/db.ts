@@ -1,21 +1,53 @@
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { randomBytes, randomUUID } from "node:crypto";
+import {
+  CAMPAIGN_LEASE_MS,
+  DEFAULT_CAMPAIGN_RAMP,
+  DEFAULT_LINE_MIN_GAP_SEC,
+  HARD_CAP_DAILY_SENDS,
+} from "@/lib/hardening/constants";
+import { demoLines } from "@/lib/demo/data";
 import { withStoreLock } from "./lock";
 import type {
   ApiKeyRecord,
+  AttemptRecord,
   CampaignRecord,
   ClientRecord,
   InboxMessage,
   LeadRecord,
-  LeadSendStatus,
+  LineRecord,
   StoreShape,
+  SuppressionRecord,
   WorkspaceSettings,
 } from "./types";
 import { STALE_SENDING_MS } from "./types";
 
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), ".data");
 const STORE_PATH = path.join(DATA_DIR, "store.json");
+
+function hashKey(secret: string): string {
+  return createHash("sha256").update(secret).digest("hex");
+}
+
+function utcDateKey(d = new Date()): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function seedLines(): LineRecord[] {
+  return demoLines.map((l) => ({
+    id: l.id,
+    e164: l.e164,
+    areaCode: l.areaCode,
+    status: l.status,
+    warmupDay: l.warmupDay,
+    dailyCap: l.dailyCap,
+    sentToday: 0,
+    sentTodayDate: utcDateKey(),
+    reputationLabel: l.reputationLabel,
+    minGapSec: DEFAULT_LINE_MIN_GAP_SEC,
+  }));
+}
 
 const defaultStore = (): StoreShape => ({
   clients: [
@@ -29,9 +61,11 @@ const defaultStore = (): StoreShape => ({
   campaigns: [],
   leads: [],
   inbox: [],
-  settings: {
-    callForwardTimeoutSec: 30,
-  },
+  settings: { callForwardTimeoutSec: 30 },
+  suppressions: [],
+  attempts: [],
+  lines: seedLines(),
+  dailySendCounts: {},
 });
 
 function normalizeLead(lead: LeadRecord): LeadRecord {
@@ -48,15 +82,33 @@ async function readStoreUnlocked(): Promise<StoreShape> {
     const raw = await readFile(STORE_PATH, "utf8");
     const parsed = JSON.parse(raw) as Partial<StoreShape>;
     const base = defaultStore();
+    // Migrate legacy plaintext api keys
+    const apiKeys = (parsed.apiKeys ?? []).map((k) => {
+      const legacy = k as ApiKeyRecord & { key?: string };
+      if (legacy.keyHash) return legacy;
+      if (legacy.key) {
+        return {
+          ...legacy,
+          keyHash: hashKey(legacy.key),
+          keyPrefix: legacy.key.slice(0, 10),
+          key: undefined,
+        };
+      }
+      return legacy;
+    });
     return {
       ...base,
       ...parsed,
       settings: { ...base.settings, ...parsed.settings },
       clients: parsed.clients ?? base.clients,
-      apiKeys: parsed.apiKeys ?? base.apiKeys,
+      apiKeys,
       campaigns: parsed.campaigns ?? base.campaigns,
       leads: (parsed.leads ?? base.leads).map(normalizeLead),
       inbox: parsed.inbox ?? base.inbox,
+      suppressions: parsed.suppressions ?? base.suppressions,
+      attempts: parsed.attempts ?? base.attempts,
+      lines: parsed.lines?.length ? parsed.lines : base.lines,
+      dailySendCounts: parsed.dailySendCounts ?? {},
     };
   } catch {
     const fresh = defaultStore();
@@ -77,6 +129,14 @@ async function mutateStore<T>(fn: (store: StoreShape) => T | Promise<T>): Promis
     await writeStoreUnlocked(store);
     return result;
   });
+}
+
+function rollLineDay(line: LineRecord, now: Date) {
+  const key = utcDateKey(now);
+  if (line.sentTodayDate !== key) {
+    line.sentToday = 0;
+    line.sentTodayDate = key;
+  }
 }
 
 export async function listCampaigns() {
@@ -121,6 +181,7 @@ export async function createCampaign(input: {
         stopOnCallback: true,
         stopOnOptOut: true,
       },
+      ramp: { ...DEFAULT_CAMPAIGN_RAMP },
     };
     store.campaigns.push(campaign);
     return campaign;
@@ -135,6 +196,14 @@ export async function updateCampaign(
     const idx = store.campaigns.findIndex((c) => c.id === id);
     if (idx < 0) return null;
     const prev = store.campaigns[idx]!;
+    let ramp = patch.ramp ? { ...prev.ramp, ...patch.ramp } : prev.ramp;
+    if (patch.status === "ACTIVE" && prev.status !== "ACTIVE") {
+      ramp = {
+        ...(ramp ?? DEFAULT_CAMPAIGN_RAMP),
+        activatedAt: new Date().toISOString(),
+        activeDay: 0,
+      };
+    }
     store.campaigns[idx] = {
       ...prev,
       ...patch,
@@ -144,9 +213,47 @@ export async function updateCampaign(
         : prev.schedule,
       steps: patch.steps ?? prev.steps,
       lineIds: patch.lineIds ?? prev.lineIds,
+      ramp,
       updatedAt: new Date().toISOString(),
     };
     return store.campaigns[idx]!;
+  });
+}
+
+/** Acquire per-campaign lease. Returns false if another owner holds it. */
+export async function acquireCampaignLease(
+  campaignId: string,
+  owner: string,
+  now = new Date(),
+): Promise<boolean> {
+  return mutateStore((store) => {
+    const c = store.campaigns.find((x) => x.id === campaignId);
+    if (!c) return false;
+    if (
+      c.leaseOwner &&
+      c.leaseOwner !== owner &&
+      c.leaseUntil &&
+      Date.parse(c.leaseUntil) > now.getTime()
+    ) {
+      return false;
+    }
+    c.leaseOwner = owner;
+    c.leaseUntil = new Date(now.getTime() + CAMPAIGN_LEASE_MS).toISOString();
+    c.updatedAt = now.toISOString();
+    return true;
+  });
+}
+
+export async function releaseCampaignLease(
+  campaignId: string,
+  owner: string,
+): Promise<void> {
+  await mutateStore((store) => {
+    const c = store.campaigns.find((x) => x.id === campaignId);
+    if (c && c.leaseOwner === owner) {
+      c.leaseOwner = undefined;
+      c.leaseUntil = undefined;
+    }
   });
 }
 
@@ -169,6 +276,7 @@ export async function importLeads(
     | "lastError"
     | "providerMessageId"
     | "suppressReason"
+    | "stickyLineId"
   >[],
   opts?: { mode?: "append" | "replace" },
 ): Promise<{ imported: number; duplicates: number; replaced: number }> {
@@ -180,13 +288,12 @@ export async function importLeads(
       store.leads = store.leads.filter((l) => l.campaignId !== campaignId);
       replaced = before - store.leads.length;
     }
-
     const existingPhones = new Set(
       store.leads
         .filter((l) => l.campaignId === campaignId)
         .map((l) => l.phoneE164),
     );
-
+    const suppressed = new Set(store.suppressions.map((s) => s.phoneE164));
     const now = new Date().toISOString();
     let imported = 0;
     let duplicates = 0;
@@ -196,14 +303,20 @@ export async function importLeads(
         continue;
       }
       existingPhones.add(lead.phoneE164);
+      const blocked = lead.dnc || suppressed.has(lead.phoneE164);
       store.leads.push({
         ...lead,
         id: `lead_${randomUUID().slice(0, 8)}`,
         campaignId,
         createdAt: now,
-        status: lead.dnc ? "SUPPRESSED" : "PENDING",
+        status: blocked ? "SUPPRESSED" : "PENDING",
         attemptCount: 0,
-        suppressReason: lead.dnc ? "DNC_IMPORT" : undefined,
+        suppressReason: blocked
+          ? lead.dnc
+            ? "DNC_IMPORT"
+            : "GLOBAL_SUPPRESSION"
+          : undefined,
+        dnc: blocked,
       });
       imported += 1;
     }
@@ -225,15 +338,12 @@ function leadIsDue(lead: LeadRecord, now: Date): boolean {
   return status === "PENDING" || status === "FAILED" || status === "SENDING";
 }
 
-export async function countDueLeads(
-  campaignId: string,
-  now = new Date(),
-): Promise<number> {
-  const leads = await listLeads(campaignId);
-  return leads.filter((l) => leadIsDue(normalizeLead(l), now)).length;
+export async function countDueLeads(campaignId: string, now = new Date()) {
+  return (await listLeads(campaignId)).filter((l) =>
+    leadIsDue(normalizeLead(l), now),
+  ).length;
 }
 
-/** Atomically claim up to `limit` due leads for a campaign (status → SENDING). */
 export async function claimLeadsForDrain(
   campaignId: string,
   limit: number,
@@ -248,6 +358,12 @@ export async function claimLeadsForDrain(
       if (lead.campaignId !== campaignId) continue;
       const normalized = normalizeLead(lead);
       if (!leadIsDue(normalized, now)) continue;
+      if (isPhoneSuppressed(store, lead.phoneE164)) {
+        lead.status = "SUPPRESSED";
+        lead.suppressReason = "GLOBAL_SUPPRESSION";
+        lead.dnc = true;
+        continue;
+      }
       lead.status = "SENDING";
       lead.lastAttemptAt = iso;
       lead.attemptCount = (lead.attemptCount ?? 0) + 1;
@@ -269,11 +385,53 @@ export async function updateLead(
   });
 }
 
+function isPhoneSuppressed(store: StoreShape, phoneE164: string): boolean {
+  return store.suppressions.some((s) => s.phoneE164 === phoneE164);
+}
+
+export async function isSuppressed(phoneE164: string): Promise<boolean> {
+  return isPhoneSuppressed(await readStoreUnlocked(), phoneE164);
+}
+
+export async function addSuppression(input: {
+  phoneE164: string;
+  reason: string;
+  source: SuppressionRecord["source"];
+}): Promise<SuppressionRecord> {
+  return mutateStore((store) => {
+    const existing = store.suppressions.find(
+      (s) => s.phoneE164 === input.phoneE164,
+    );
+    if (existing) return existing;
+    const row: SuppressionRecord = {
+      id: `sup_${randomUUID().slice(0, 8)}`,
+      phoneE164: input.phoneE164,
+      reason: input.reason,
+      source: input.source,
+      createdAt: new Date().toISOString(),
+    };
+    store.suppressions.push(row);
+    for (const lead of store.leads) {
+      if (lead.phoneE164 === input.phoneE164) {
+        lead.status = "SUPPRESSED";
+        lead.suppressReason = input.reason;
+        lead.dnc = true;
+      }
+    }
+    return row;
+  });
+}
+
 export async function suppressLeadByPhone(
   phoneE164: string,
   reason: string,
-  opts?: { optOut?: boolean; markDnc?: boolean },
+  opts?: { optOut?: boolean; markDnc?: boolean; source?: SuppressionRecord["source"] },
 ): Promise<number> {
+  await addSuppression({
+    phoneE164,
+    reason,
+    source: opts?.source ?? (opts?.optOut ? "SMS_STOP" : "MANUAL"),
+  });
   return mutateStore((store) => {
     let n = 0;
     for (const lead of store.leads) {
@@ -288,13 +446,131 @@ export async function suppressLeadByPhone(
   });
 }
 
-export async function countSentToday(campaignId: string, now = new Date()): Promise<number> {
-  const start = new Date(now);
-  start.setUTCHours(0, 0, 0, 0);
-  const startMs = start.getTime();
+export async function createAttempt(input: {
+  campaignId: string;
+  leadId: string;
+  idempotencyKey: string;
+  lineId?: string;
+}): Promise<AttemptRecord> {
+  return mutateStore((store) => {
+    const existing = store.attempts.find(
+      (a) =>
+        a.idempotencyKey === input.idempotencyKey &&
+        (a.status === "SENT" || a.status === "SENDING"),
+    );
+    if (existing) return existing;
+    const now = new Date().toISOString();
+    const row: AttemptRecord = {
+      id: `att_${randomUUID().slice(0, 8)}`,
+      campaignId: input.campaignId,
+      leadId: input.leadId,
+      lineId: input.lineId,
+      status: "QUEUED",
+      idempotencyKey: input.idempotencyKey,
+      createdAt: now,
+      updatedAt: now,
+    };
+    store.attempts.push(row);
+    return row;
+  });
+}
+
+export async function updateAttempt(
+  id: string,
+  patch: Partial<AttemptRecord>,
+): Promise<AttemptRecord | null> {
+  return mutateStore((store) => {
+    const idx = store.attempts.findIndex((a) => a.id === id);
+    if (idx < 0) return null;
+    store.attempts[idx] = {
+      ...store.attempts[idx]!,
+      ...patch,
+      id,
+      updatedAt: new Date().toISOString(),
+    };
+    return store.attempts[idx]!;
+  });
+}
+
+export async function findSentAttempt(
+  campaignId: string,
+  leadId: string,
+): Promise<AttemptRecord | null> {
+  const store = await readStoreUnlocked();
+  return (
+    store.attempts.find(
+      (a) =>
+        a.campaignId === campaignId &&
+        a.leadId === leadId &&
+        a.status === "SENT",
+    ) ?? null
+  );
+}
+
+export async function listLines(): Promise<LineRecord[]> {
+  const store = await readStoreUnlocked();
+  const now = new Date();
+  return store.lines.map((l) => {
+    const copy = { ...l };
+    rollLineDay(copy, now);
+    return copy;
+  });
+}
+
+export async function bumpLineSent(lineId: string, now = new Date()) {
+  return mutateStore((store) => {
+    const line = store.lines.find((l) => l.id === lineId);
+    if (!line) return null;
+    rollLineDay(line, now);
+    line.sentToday += 1;
+    line.lastSentAt = now.toISOString();
+    return line;
+  });
+}
+
+export async function ensureLine(e164: string): Promise<LineRecord> {
+  return mutateStore((store) => {
+    const existing = store.lines.find((l) => l.e164 === e164 || l.id === e164);
+    if (existing) return existing;
+    const row: LineRecord = {
+      id: `ln_${randomUUID().slice(0, 8)}`,
+      e164,
+      areaCode: e164.replace(/\D/g, "").slice(1, 4),
+      status: "HEALTHY",
+      warmupDay: 14,
+      dailyCap: 80,
+      sentToday: 0,
+      sentTodayDate: utcDateKey(),
+      reputationLabel: "UNKNOWN",
+      minGapSec: DEFAULT_LINE_MIN_GAP_SEC,
+    };
+    store.lines.push(row);
+    return row;
+  });
+}
+
+export async function countSentToday(campaignId: string, now = new Date()) {
+  const start = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
   return (await listLeads(campaignId)).filter(
-    (l) => l.sentAt && Date.parse(l.sentAt) >= startMs,
+    (l) => l.sentAt && Date.parse(l.sentAt) >= start,
   ).length;
+}
+
+export async function getOrgSendsToday(now = new Date()): Promise<number> {
+  const store = await readStoreUnlocked();
+  return store.dailySendCounts[utcDateKey(now)] ?? 0;
+}
+
+export async function incrementOrgSends(now = new Date()): Promise<number> {
+  return mutateStore((store) => {
+    const key = utcDateKey(now);
+    store.dailySendCounts[key] = (store.dailySendCounts[key] ?? 0) + 1;
+    return store.dailySendCounts[key]!;
+  });
+}
+
+export async function orgDailyCap(settings?: WorkspaceSettings): Promise<number> {
+  return settings?.hardCapDailySends ?? HARD_CAP_DAILY_SENDS;
 }
 
 export async function listClients() {
@@ -315,7 +591,8 @@ export async function createClient(name: string): Promise<ClientRecord> {
 
 export async function listApiKeys(clientId?: string) {
   const keys = (await readStoreUnlocked()).apiKeys.filter((k) => !k.revokedAt);
-  return clientId ? keys.filter((k) => k.clientId === clientId) : keys;
+  const mapped = keys.map(({ key: _k, ...rest }) => rest);
+  return clientId ? mapped.filter((k) => k.clientId === clientId) : mapped;
 }
 
 export async function createApiKey(input: {
@@ -323,15 +600,19 @@ export async function createApiKey(input: {
   name: string;
 }): Promise<ApiKeyRecord> {
   return mutateStore((store) => {
-    const key: ApiKeyRecord = {
+    const secret = `ds_${randomBytes(24).toString("hex")}`;
+    const row: ApiKeyRecord = {
       id: `key_${randomUUID().slice(0, 8)}`,
       clientId: input.clientId,
       name: input.name,
-      key: `ds_${randomBytes(24).toString("hex")}`,
+      keyHash: hashKey(secret),
+      keyPrefix: secret.slice(0, 10),
+      key: secret, // returned once; stripped on write below
       createdAt: new Date().toISOString(),
     };
-    store.apiKeys.push(key);
-    return key;
+    const { key: _shown, ...persisted } = row;
+    store.apiKeys.push(persisted as ApiKeyRecord);
+    return row;
   });
 }
 
@@ -363,7 +644,6 @@ export async function updateInboxMessage(
   });
 }
 
-/** Returns existing message if providerEventId already seen (idempotent). */
 export async function addInboxMessage(
   msg: Omit<InboxMessage, "id" | "createdAt">,
 ): Promise<{ message: InboxMessage; created: boolean }> {
@@ -392,9 +672,7 @@ export async function updateSettings(patch: Partial<WorkspaceSettings>) {
   return mutateStore((store) => {
     const next = { ...store.settings, ...patch };
     if (patch.callForwardToE164 === "" || patch.callForwardToE164 === undefined) {
-      if ("callForwardToE164" in patch) {
-        delete next.callForwardToE164;
-      }
+      if ("callForwardToE164" in patch) delete next.callForwardToE164;
     }
     store.settings = next;
     return store.settings;
@@ -409,9 +687,7 @@ export async function resolveCallForwardTo(): Promise<{
   const settings = await getSettings();
   const timeoutSec = settings.callForwardTimeoutSec ?? 30;
   const fromEnv = process.env.CALL_FORWARD_TO_E164?.trim();
-  if (fromEnv) {
-    return { e164: fromEnv, timeoutSec, source: "env" };
-  }
+  if (fromEnv) return { e164: fromEnv, timeoutSec, source: "env" };
   if (settings.callForwardToE164) {
     return {
       e164: settings.callForwardToE164,
@@ -421,5 +697,3 @@ export async function resolveCallForwardTo(): Promise<{
   }
   return { e164: null, timeoutSec, source: "none" };
 }
-
-export type { LeadSendStatus };

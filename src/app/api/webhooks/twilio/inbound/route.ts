@@ -103,7 +103,10 @@ export async function POST(req: Request) {
         c.schedule.stopOnCallback,
     );
     if (stopOnCallback) {
-      await suppressLeadByPhone(from, "CALLBACK");
+      await suppressLeadByPhone(from, "CALLBACK", {
+        source: "CALLBACK",
+        markDnc: true,
+      });
     }
 
     if (!forward.e164) {
@@ -137,7 +140,11 @@ export async function POST(req: Request) {
   });
 
   if (isStop) {
-    await suppressLeadByPhone(from, "SMS_STOP", { optOut: true, markDnc: true });
+    await suppressLeadByPhone(from, "SMS_STOP", {
+      optOut: true,
+      markDnc: true,
+      source: "SMS_STOP",
+    });
   }
 
   return new NextResponse(emptyTwiml(), {

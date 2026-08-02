@@ -5,7 +5,13 @@ import {
   suggestLineStatus,
   DEFAULT_WARMUP_PROFILE,
 } from "../src/lib/warmup/schedule";
-import { pickLine, poolRemainingCapacity } from "../src/lib/sequencer/line-picker";
+import {
+  campaignRampCeiling,
+  pickLine,
+  poolRemainingCapacity,
+} from "../src/lib/sequencer/line-picker";
+import { humanizeSendAt } from "../src/lib/sequencer/jitter";
+import { checkRateLimit } from "../src/lib/security/rate-limit";
 import { evaluateCompliance, renderScript } from "../src/lib/compliance/gates";
 import { evaluateLineHealth } from "../src/lib/reputation/evaluate";
 import { estimateRun, DELIVERY_SCENARIOS, TTS_SCENARIOS } from "../src/lib/cost/estimate";
@@ -77,6 +83,77 @@ const lines = [
 const picked = pickLine(lines, "+12125550999");
 assert.equal(picked?.id, "b");
 assert.equal(poolRemainingCapacity(lines), 80);
+
+// Sticky line preferred when still eligible
+const sticky = pickLine(lines, "+13055550999", { stickyLineId: "a" });
+assert.equal(sticky?.id, "a");
+
+// Min gap excludes recently used line
+const gapped = pickLine(
+  [
+    {
+      id: "recent",
+      e164: "+12125550101",
+      areaCode: "212",
+      status: "HEALTHY" as const,
+      dailyCap: 80,
+      sentToday: 0,
+      reputationLabel: "UNFLAGGED" as const,
+      lastSentAt: new Date().toISOString(),
+      minGapSec: 600,
+    },
+    {
+      id: "cool",
+      e164: "+14155550101",
+      areaCode: "415",
+      status: "HEALTHY" as const,
+      dailyCap: 80,
+      sentToday: 0,
+      reputationLabel: "UNFLAGGED" as const,
+      minGapSec: 600,
+    },
+  ],
+  "+12125550999",
+);
+assert.equal(gapped?.id, "cool");
+
+// Ramp can only lower vs newLeadsPerDay
+assert.equal(
+  campaignRampCeiling({
+    enabled: true,
+    startPerDay: 25,
+    incrementPerDay: 25,
+    ceilingPerDay: 200,
+    activeDay: 0,
+    newLeadsPerDay: 200,
+  }),
+  25,
+);
+assert.equal(
+  campaignRampCeiling({
+    enabled: false,
+    startPerDay: 25,
+    incrementPerDay: 25,
+    ceilingPerDay: 200,
+    activeDay: 10,
+    newLeadsPerDay: 50,
+  }),
+  50,
+);
+
+// Jitter is deterministic for a salt and moves forward
+const base = new Date("2026-08-01T12:00:00.000Z");
+const j1 = humanizeSendAt(base, { salt: "lead_a" });
+const j2 = humanizeSendAt(base, { salt: "lead_a" });
+assert.equal(j1.getTime(), j2.getTime());
+assert.ok(j1.getTime() >= base.getTime());
+
+// Rate limit trips after max
+const rlKey = `verify_${Date.now()}`;
+for (let i = 0; i < 3; i++) {
+  assert.equal(checkRateLimit(rlKey, { windowMs: 60_000, max: 3 }).ok, true);
+}
+assert.equal(checkRateLimit(rlKey, { windowMs: 60_000, max: 3 }).ok, false);
 
 // Compliance hard gates
 assert.equal(
@@ -294,6 +371,44 @@ async function main() {
     now: new Date("2026-08-03T18:00:00.000Z"),
   });
   assert.equal(sentAttempt.status, "SENT");
+
+  const suppressedAttempt = await runAttempt({
+    lead: {
+      id: "l3",
+      phoneE164: "+14155550999",
+      consentStatus: "UNKNOWN",
+      dnc: false,
+    },
+    campaign: {
+      id: "c1",
+      scriptTemplate: "Hey",
+      audioUrl: "https://example.com/a.mp3",
+      schedule: {
+        sendWindowStart: 0,
+        sendWindowEnd: 24,
+        sendDays: [0, 1, 2, 3, 4, 5, 6],
+      },
+    },
+    lines: [
+      {
+        id: "ln",
+        e164: "+14155550999",
+        areaCode: "415",
+        status: "HEALTHY",
+        dailyCap: 80,
+        sentToday: 0,
+        reputationLabel: "UNFLAGGED",
+      },
+    ],
+    dncScrubbers: [mockDncScrubber],
+    delivery: mockRvmProvider,
+    now: new Date("2026-08-03T18:00:00.000Z"),
+    isSuppressed: () => true,
+  });
+  assert.equal(suppressedAttempt.status, "SKIPPED");
+  if (suppressedAttempt.status === "SKIPPED") {
+    assert.equal(suppressedAttempt.reason, "SUPPRESSED");
+  }
 
   // Enrollment backoff — finite, capped, not infinite hammering
   assert.ok(failureBackoffMs(1) >= 5 * 60 * 1000);

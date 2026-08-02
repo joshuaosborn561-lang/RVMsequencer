@@ -6,37 +6,76 @@ export type PickableLine = {
   dailyCap: number;
   sentToday: number;
   reputationLabel: "UNFLAGGED" | "MIXED_LOW" | "MIXED_HIGH" | "FLAGGED" | "UNKNOWN";
+  /** Warmup age in days — older healthy lines get more weight. */
+  warmupDay?: number;
+  lastSentAt?: string | null;
+  minGapSec?: number;
 };
 
 const ELIGIBLE = new Set(["WARMING", "HEALTHY", "DEGRADED"]);
 
+export type PickLineOptions = {
+  now?: Date;
+  /** Prefer this sticky line if still eligible. */
+  stickyLineId?: string;
+  /** Rotation: weighted (default) | lru | round_robin */
+  mode?: "weighted" | "lru" | "round_robin";
+  /** Round-robin cursor (line id). */
+  roundRobinAfterId?: string;
+};
+
 /**
- * Pick a line for the next RVM, preferring:
- * 1. Eligible status + remaining daily capacity
- * 2. Local presence (matching area code)
- * 3. Healthiest reputation
- * 4. Lowest utilization today (spread load like Smartlead inbox rotation)
+ * Pick a line for the next RVM (Warmbly-style mailbox-first):
+ * capacity + min gap + local presence + reputation + warmup weight.
  */
 export function pickLine(
   lines: PickableLine[],
   destinationE164: string,
+  opts?: PickLineOptions,
 ): PickableLine | null {
+  const now = opts?.now ?? new Date();
   const destArea = areaCodeFromE164(destinationE164);
+
   const candidates = lines
     .filter((l) => ELIGIBLE.has(l.status))
     .filter((l) => l.sentToday < l.dailyCap)
-    .filter((l) => l.reputationLabel !== "FLAGGED");
+    .filter((l) => l.reputationLabel !== "FLAGGED")
+    .filter((l) => respectsMinGap(l, now));
 
   if (candidates.length === 0) return null;
 
+  if (opts?.stickyLineId) {
+    const sticky = candidates.find((c) => c.id === opts.stickyLineId);
+    if (sticky) return sticky;
+  }
+
+  const mode = opts?.mode ?? "weighted";
+  if (mode === "lru") {
+    return [...candidates].sort((a, b) => {
+      const at = a.lastSentAt ? Date.parse(a.lastSentAt) : 0;
+      const bt = b.lastSentAt ? Date.parse(b.lastSentAt) : 0;
+      return at - bt;
+    })[0]!;
+  }
+
+  if (mode === "round_robin") {
+    if (!opts?.roundRobinAfterId) return candidates[0]!;
+    const idx = candidates.findIndex((c) => c.id === opts.roundRobinAfterId);
+    return candidates[(idx + 1) % candidates.length]!;
+  }
+
+  // Weighted: local presence + reputation + remaining capacity + warmup age
   const scored = candidates.map((line) => {
     let score = 0;
     if (destArea && line.areaCode === destArea) score += 100;
     score += reputationScore(line.reputationLabel);
-    const utilization = line.sentToday / Math.max(line.dailyCap, 1);
-    score += (1 - utilization) * 20;
+    const remaining = line.dailyCap - line.sentToday;
+    score += remaining * 2;
+    score += Math.min(line.warmupDay ?? 0, 30);
     if (line.status === "HEALTHY") score += 10;
     if (line.status === "DEGRADED") score -= 15;
+    // Mild randomness so ties don't always pick the same DID
+    score += Math.random() * 3;
     return { line, score };
   });
 
@@ -44,17 +83,20 @@ export function pickLine(
   return scored[0]?.line ?? null;
 }
 
+function respectsMinGap(line: PickableLine, now: Date): boolean {
+  if (!line.lastSentAt || !line.minGapSec) return true;
+  const elapsed = (now.getTime() - Date.parse(line.lastSentAt)) / 1000;
+  return elapsed >= line.minGapSec;
+}
+
 export function areaCodeFromE164(e164: string): string | null {
   const digits = e164.replace(/\D/g, "");
-  // US/CA: 1 + NPA + NXX + XXXX
   if (digits.length === 11 && digits.startsWith("1")) return digits.slice(1, 4);
   if (digits.length === 10) return digits.slice(0, 3);
   return null;
 }
 
-function reputationScore(
-  label: PickableLine["reputationLabel"],
-): number {
+function reputationScore(label: PickableLine["reputationLabel"]): number {
   switch (label) {
     case "UNFLAGGED":
       return 30;
@@ -69,9 +111,25 @@ function reputationScore(
   }
 }
 
-/** Remaining capacity across the pool for pacing campaigns. */
 export function poolRemainingCapacity(lines: PickableLine[]): number {
   return lines
     .filter((l) => ELIGIBLE.has(l.status) && l.reputationLabel !== "FLAGGED")
     .reduce((sum, l) => sum + Math.max(0, l.dailyCap - l.sentToday), 0);
+}
+
+/** Warmbly: campaign ramp can only LOWER the effective daily new-lead budget. */
+export function campaignRampCeiling(input: {
+  enabled: boolean;
+  startPerDay: number;
+  incrementPerDay: number;
+  ceilingPerDay: number;
+  activeDay: number;
+  newLeadsPerDay: number;
+}): number {
+  if (!input.enabled) return input.newLeadsPerDay;
+  const ramped = Math.min(
+    input.ceilingPerDay,
+    input.startPerDay + input.incrementPerDay * Math.max(0, input.activeDay),
+  );
+  return Math.min(input.newLeadsPerDay, ramped);
 }

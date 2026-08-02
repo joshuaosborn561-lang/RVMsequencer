@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { guardApiRateLimit } from "@/lib/security/api-guard";
 import { createClient, listClients } from "@/lib/store/db";
 
 export async function GET() {
@@ -9,6 +10,8 @@ export async function GET() {
 const Body = z.object({ name: z.string().min(1).max(120) });
 
 export async function POST(req: Request) {
+  const limited = guardApiRateLimit(req, "clients");
+  if (limited) return limited;
   const parsed = Body.safeParse(await req.json());
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });

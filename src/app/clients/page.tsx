@@ -71,8 +71,8 @@ export default function ClientsPage() {
 
   return (
     <AppShell
-      title="Clients / API keys"
-      subtitle="Per-client isolation and programmatic access — Smartlead-style API keys for each book of business."
+      title="Client Access"
+      subtitle="Agency view — assign clients and API keys (Smartlead Client Access)."
     >
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="panel rounded-xl p-5">

@@ -75,3 +75,130 @@ body {
 .badge-muted {
   color: var(--muted);
 }
+
+/* Smartlead-like app chrome (structure only — keep brand colors/fonts) */
+.sl-shell {
+  min-height: 100%;
+  background: color-mix(in oklab, var(--bg-elevated) 70%, white);
+}
+
+.sl-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  background: #fff;
+  border-right: 1px solid var(--line);
+}
+
+.sl-nav-item {
+  display: block;
+  border-radius: 0.5rem;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.875rem;
+  color: var(--muted);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.sl-nav-item:hover {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.sl-nav-item-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.sl-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.sl-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 1rem;
+}
+
+.sl-tab {
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  padding: 0.65rem 0.9rem;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.sl-tab:hover {
+  color: var(--ink);
+}
+
+.sl-tab-active {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.sl-table-wrap {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: #fff;
+}
+
+.sl-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.9rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.sl-btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.sl-btn-primary:disabled {
+  opacity: 0.5;
+}
+
+.sl-btn-ghost {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+}
+
+.sl-input {
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: #fff;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+}
+
+.sl-inbox-layout {
+  display: grid;
+  grid-template-columns: 180px minmax(240px, 1fr) minmax(280px, 1.2fr);
+  gap: 0;
+  min-height: calc(100vh - 7rem);
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background: #fff;
+}
+
+@media (max-width: 1024px) {
+  .sl-inbox-layout {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+}

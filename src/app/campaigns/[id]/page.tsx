@@ -7,20 +7,21 @@ import { AppShell } from "@/components/app-shell";
 import { guessFieldMapping, parseCsv } from "@/lib/csv";
 import type { CampaignRecord, LeadRecord } from "@/lib/store/types";
 
+/** Smartlead campaign tabs: Analytics → Leads → Sequence → Accounts → Settings → Launch */
 type Tab =
+  | "analytics"
   | "leads"
   | "sequence"
-  | "lines"
-  | "schedule"
-  | "preview"
+  | "accounts"
+  | "settings"
   | "launch";
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: "leads", label: "Leads / CSV" },
+  { id: "analytics", label: "Analytics" },
+  { id: "leads", label: "Leads" },
   { id: "sequence", label: "Sequence" },
-  { id: "lines", label: "Lines & CID" },
-  { id: "schedule", label: "Schedule" },
-  { id: "preview", label: "Preview" },
+  { id: "accounts", label: "Phone Lines" },
+  { id: "settings", label: "Settings" },
   { id: "launch", label: "Launch" },
 ];
 
@@ -32,6 +33,8 @@ export default function CampaignWizardPage() {
   const [leads, setLeads] = useState<LeadRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
+  const [editName, setEditName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -43,6 +46,7 @@ export default function CampaignWizardPage() {
       };
       setCampaign(data.campaign);
       setLeads(data.leads ?? []);
+      setNameDraft(data.campaign.name);
     } else {
       setCampaign(null);
     }
@@ -52,6 +56,11 @@ export default function CampaignWizardPage() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("tab") as Tab | null;
+    if (t && TABS.some((x) => x.id === t)) setTab(t);
+  }, []);
 
   async function patch(body: Partial<CampaignRecord>) {
     setMsg(null);
@@ -98,21 +107,87 @@ export default function CampaignWizardPage() {
     );
   }
 
+  const sendable = leads.filter((l) => {
+    const s = l.status ?? "PENDING";
+    return (
+      !l.dnc &&
+      l.consentStatus !== "OPTED_OUT" &&
+      s !== "SUPPRESSED" &&
+      s !== "SENT"
+    );
+  }).length;
+
   return (
-    <AppShell
-      title={campaign.name}
-      subtitle={`${campaign.status} · ${leads.filter((l) => (l.status ?? "PENDING") === "PENDING" || (l.status ?? "PENDING") === "FAILED").length} sendable / ${leads.length} leads · client ${campaign.clientId ?? "—"}`}
-    >
-      <div className="mb-6 flex flex-wrap gap-1 border-b border-[var(--line)] pb-2">
+    <AppShell bare>
+      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--muted)]">
+            <Link href="/campaigns" className="hover:text-[var(--accent)]">
+              Campaigns
+            </Link>
+            <span>/</span>
+            <span className="badge badge-muted">{campaign.status}</span>
+          </div>
+          {editName ? (
+            <div className="mt-1 flex gap-2">
+              <input
+                className="sl-input min-w-[220px]"
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+              />
+              <button
+                type="button"
+                className="sl-btn sl-btn-primary"
+                onClick={() => {
+                  void patch({ name: nameDraft.trim() || campaign.name });
+                  setEditName(false);
+                }}
+              >
+                Save
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="mt-1 text-left font-[family-name:var(--font-display)] text-2xl tracking-tight hover:text-[var(--accent)]"
+              onClick={() => setEditName(true)}
+              title="Rename campaign"
+            >
+              {campaign.name}
+            </button>
+          )}
+          <p className="mt-0.5 text-sm text-[var(--muted)]">
+            {sendable} sendable · {leads.length} leads · client{" "}
+            {campaign.clientId ?? "—"}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {campaign.status === "ACTIVE" ? (
+            <button
+              type="button"
+              className="sl-btn sl-btn-ghost"
+              onClick={() => void patch({ status: "PAUSED" })}
+            >
+              Pause
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="sl-btn sl-btn-primary"
+              onClick={() => setTab("launch")}
+            >
+              Launch Campaign
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="sl-tabs">
         {TABS.map((t) => (
           <button
             key={t.id}
             type="button"
-            className={`rounded-lg px-3 py-2 text-sm transition ${
-              tab === t.id
-                ? "bg-[var(--accent-soft)] font-medium text-[var(--accent)]"
-                : "text-[var(--muted)] hover:bg-white hover:text-[var(--ink)]"
-            }`}
+            className={`sl-tab ${tab === t.id ? "sl-tab-active" : ""}`}
             onClick={() => setTab(t.id)}
           >
             {t.label}
@@ -120,29 +195,127 @@ export default function CampaignWizardPage() {
         ))}
       </div>
 
-      {msg ? <p className="mb-4 text-sm text-[var(--muted)]">{msg}</p> : null}
+      {msg ? <p className="mb-3 text-sm text-[var(--muted)]">{msg}</p> : null}
 
+      {tab === "analytics" ? (
+        <AnalyticsTab campaign={campaign} leads={leads} />
+      ) : null}
       {tab === "leads" ? (
         <LeadsTab
           campaignId={id}
           leads={leads}
           onImported={() => void reload()}
+          onNext={() => setTab("sequence")}
         />
       ) : null}
       {tab === "sequence" ? (
-        <SequenceTab campaign={campaign} onSave={patch} />
+        <SequenceTab
+          campaign={campaign}
+          onSave={patch}
+          onNext={() => setTab("accounts")}
+        />
       ) : null}
-      {tab === "lines" ? <LinesTab campaign={campaign} onSave={patch} /> : null}
-      {tab === "schedule" ? (
-        <ScheduleTab campaign={campaign} onSave={patch} />
+      {tab === "accounts" ? (
+        <LinesTab
+          campaign={campaign}
+          onSave={patch}
+          onNext={() => setTab("settings")}
+        />
       ) : null}
-      {tab === "preview" ? (
-        <PreviewTab campaignId={id} leads={leads} />
+      {tab === "settings" ? (
+        <ScheduleTab
+          campaign={campaign}
+          onSave={patch}
+          onNext={() => setTab("launch")}
+        />
       ) : null}
       {tab === "launch" ? (
-        <LaunchTab campaign={campaign} leads={leads} onSave={patch} />
+        <div className="flex flex-col gap-6">
+          <LaunchTab campaign={campaign} leads={leads} onSave={patch} />
+          <PreviewTab campaignId={id} leads={leads} />
+        </div>
       ) : null}
     </AppShell>
+  );
+}
+
+function AnalyticsTab({
+  campaign,
+  leads,
+}: {
+  campaign: CampaignRecord;
+  leads: LeadRecord[];
+}) {
+  const sent = leads.filter((l) => l.status === "SENT").length;
+  const pending = leads.filter(
+    (l) => (l.status ?? "PENDING") === "PENDING" || l.status === "SENDING",
+  ).length;
+  const failed = leads.filter((l) => l.status === "FAILED").length;
+  const suppressed = leads.filter(
+    (l) => l.status === "SUPPRESSED" || l.dnc,
+  ).length;
+  const cards = [
+    { label: "Leads", value: leads.length },
+    { label: "RVM sent", value: sent },
+    { label: "Pending", value: pending },
+    { label: "Failed", value: failed },
+    { label: "Suppressed", value: suppressed },
+    {
+      label: "Completion",
+      value:
+        leads.length === 0
+          ? "—"
+          : `${Math.round((sent / leads.length) * 100)}%`,
+    },
+  ];
+  return (
+    <div className="flex flex-col gap-6">
+      <section className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {cards.map((c) => (
+          <div
+            key={c.label}
+            className="rounded-xl border border-[var(--line)] bg-white p-4"
+          >
+            <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">
+              {c.label}
+            </p>
+            <p className="mt-1 font-[family-name:var(--font-display)] text-2xl">
+              {c.value}
+            </p>
+          </div>
+        ))}
+      </section>
+      <section className="rounded-xl border border-[var(--line)] bg-white p-5">
+        <h2 className="font-[family-name:var(--font-display)] text-lg">
+          Campaign health
+        </h2>
+        <ul className="mt-3 space-y-1 text-sm text-[var(--muted)]">
+          <li>
+            Status: <strong className="text-[var(--ink)]">{campaign.status}</strong>
+          </li>
+          <li>
+            Schedule: {campaign.schedule.sendWindowStart}:00–
+            {campaign.schedule.sendWindowEnd}:00 ·{" "}
+            {campaign.schedule.timezoneMode}
+          </li>
+          <li>Phone lines assigned: {campaign.lineIds.length}</li>
+          <li>Sequence steps: {campaign.steps.length}</li>
+          {campaign.lastDrainAt ? (
+            <li>
+              Last drain {new Date(campaign.lastDrainAt).toLocaleString()} — sent{" "}
+              {campaign.lastDrainStats?.sent ?? 0}, skipped{" "}
+              {campaign.lastDrainStats?.skipped ?? 0}, failed{" "}
+              {campaign.lastDrainStats?.failed ?? 0}
+            </li>
+          ) : (
+            <li>No drain yet — launch when setup is complete.</li>
+          )}
+          {campaign.lastError ? (
+            <li className="text-[var(--danger)]">Last error: {campaign.lastError}</li>
+          ) : null}
+        </ul>
+      </section>
+    </div>
   );
 }
 
@@ -168,10 +341,12 @@ function LeadsTab({
   campaignId,
   leads,
   onImported,
+  onNext,
 }: {
   campaignId: string;
   leads: LeadRecord[];
   onImported: () => void;
+  onNext: () => void;
 }) {
   const [raw, setRaw] = useState(
     "phone,first_name,company\n4155550100,Alex,Acme\n6465550199,Sam,Northwind",
@@ -242,14 +417,21 @@ function LeadsTab({
 
   return (
     <div className="flex flex-col gap-6">
-      <section className="panel rounded-xl p-5">
-        <h2 className="font-[family-name:var(--font-display)] text-xl">
-          Import CSV
-        </h2>
-        <p className="mt-1 text-sm text-[var(--muted)]">
-          Upload → map columns → scrub DNC → import. Extra columns become{" "}
-          {"{{variables}}"}.
-        </p>
+      <section className="rounded-xl border border-[var(--line)] bg-white p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-[family-name:var(--font-display)] text-xl">
+              + Add Leads
+            </h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Upload CSV → map fields → DNC scrub → import (Smartlead Leads
+              tab). Extra columns become {"{{variables}}"}.
+            </p>
+          </div>
+          <button type="button" className="sl-btn sl-btn-ghost" onClick={onNext}>
+            Next: Sequence
+          </button>
+        </div>
         <div className="mt-4 flex flex-col gap-4">
           <Field label="CSV file">
             <input
@@ -316,10 +498,10 @@ function LeadsTab({
         </div>
       </section>
 
-      <section className="panel overflow-hidden rounded-xl">
+      <section className="sl-table-wrap">
         <div className="border-b border-[var(--line)] px-5 py-4">
           <h2 className="font-[family-name:var(--font-display)] text-xl">
-            Leads ({leads.length})
+            Lead list ({leads.length})
           </h2>
           {leads.length > 50 ? (
             <p className="mt-1 text-xs text-[var(--muted)]">
@@ -388,9 +570,11 @@ function LeadsTab({
 function SequenceTab({
   campaign,
   onSave,
+  onNext,
 }: {
   campaign: CampaignRecord;
   onSave: (body: Partial<CampaignRecord>) => Promise<void>;
+  onNext: () => void;
 }) {
   const step = campaign.steps[0];
   const [script, setScript] = useState(step?.scriptTemplate ?? "");
@@ -417,15 +601,22 @@ function SequenceTab({
   ]);
 
   return (
-    <section className="panel rounded-xl p-5">
-      <h2 className="font-[family-name:var(--font-display)] text-xl">
-        Sequence step 1 — RVM
-      </h2>
-      <p className="mt-1 text-sm text-[var(--muted)]">
-        Variables: {"{{first_name}}"}, {"{{last_name}}"}, {"{{company}}"},{" "}
-        {"{{phone}}"}. Prefer a static audio URL (generate once) over per-lead
-        TTS.
-      </p>
+    <section className="rounded-xl border border-[var(--line)] bg-white p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="font-[family-name:var(--font-display)] text-xl">
+            Sequence
+          </h2>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            RVM steps with wait days — Smartlead Sequence tab. Variables:{" "}
+            {"{{first_name}}"}, {"{{company}}"}. Prefer static audio URL
+            (generate once).
+          </p>
+        </div>
+        <button type="button" className="sl-btn sl-btn-ghost" onClick={onNext}>
+          Next: Phone Lines
+        </button>
+      </div>
       <div className="mt-4 flex flex-col gap-4">
         <Field label="Script template">
           <textarea
@@ -458,29 +649,67 @@ function SequenceTab({
             onChange={(e) => setDelay(e.target.value)}
           />
         </Field>
-        <button
-          type="button"
-          className="w-fit rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
-          onClick={() =>
-            void onSave({
-              audioUrl: audioUrl || undefined,
-              elevenVoiceId: voiceId || undefined,
-              steps: [
-                {
-                  id: step?.id ?? "step_1",
-                  position: 1,
-                  delayDays: Number(delay) || 0,
-                  scriptTemplate: script,
-                  voiceId: voiceId || undefined,
-                  audioUrl: audioUrl || undefined,
-                },
-                ...campaign.steps.filter((s) => s.position !== 1),
-              ],
-            })
-          }
-        >
-          Save sequence
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="sl-btn sl-btn-primary"
+            onClick={() =>
+              void onSave({
+                audioUrl: audioUrl || undefined,
+                elevenVoiceId: voiceId || undefined,
+                steps: [
+                  {
+                    id: step?.id ?? "step_1",
+                    position: 1,
+                    delayDays: Number(delay) || 0,
+                    scriptTemplate: script,
+                    voiceId: voiceId || undefined,
+                    audioUrl: audioUrl || undefined,
+                  },
+                  ...campaign.steps.filter((s) => s.position !== 1),
+                ],
+              })
+            }
+          >
+            Save step
+          </button>
+          <button
+            type="button"
+            className="sl-btn sl-btn-ghost"
+            onClick={() => {
+              const nextPos =
+                Math.max(0, ...campaign.steps.map((s) => s.position)) + 1;
+              void onSave({
+                steps: [
+                  ...campaign.steps,
+                  {
+                    id: `step_${nextPos}`,
+                    position: nextPos,
+                    delayDays: 2,
+                    scriptTemplate:
+                      "Hey {{first_name}}, just following up on my last voicemail about {{company}}.",
+                  },
+                ],
+              });
+            }}
+          >
+            + Add step
+          </button>
+        </div>
+        {campaign.steps.length > 1 ? (
+          <ul className="mt-2 space-y-1 text-sm text-[var(--muted)]">
+            {campaign.steps
+              .slice()
+              .sort((a, b) => a.position - b.position)
+              .map((s) => (
+                <li key={s.id}>
+                  Step {s.position} · wait {s.delayDays}d ·{" "}
+                  {s.scriptTemplate.slice(0, 60)}
+                  {s.scriptTemplate.length > 60 ? "…" : ""}
+                </li>
+              ))}
+          </ul>
+        ) : null}
       </div>
     </section>
   );
@@ -489,9 +718,11 @@ function SequenceTab({
 function LinesTab({
   campaign,
   onSave,
+  onNext,
 }: {
   campaign: CampaignRecord;
   onSave: (body: Partial<CampaignRecord>) => Promise<void>;
+  onNext: () => void;
 }) {
   const [pool, setPool] = useState(campaign.lineIds.join(", "));
 
@@ -500,16 +731,23 @@ function LinesTab({
   }, [campaign.lineIds]);
 
   return (
-    <section className="panel rounded-xl p-5">
-      <h2 className="font-[family-name:var(--font-display)] text-xl">
-        Lines & caller ID pool
-      </h2>
-      <p className="mt-1 text-sm text-[var(--muted)]">
-        Comma-separated E.164 numbers (or demo line ids like ln_1). Empty pool
-        fails closed — campaign will not send. Warmup/caps apply at send time.
-      </p>
+    <section className="rounded-xl border border-[var(--line)] bg-white p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="font-[family-name:var(--font-display)] text-xl">
+            Phone Lines
+          </h2>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            Assign warmed Twilio DIDs — Smartlead Email Accounts tab for RVM
+            caller IDs. Empty pool fails closed.
+          </p>
+        </div>
+        <button type="button" className="sl-btn sl-btn-ghost" onClick={onNext}>
+          Next: Settings
+        </button>
+      </div>
       <div className="mt-4 flex flex-col gap-4">
-        <Field label="Line pool">
+        <Field label="Line pool (E.164 or demo ids)">
           <textarea
             rows={3}
             className={`${inputClass} font-[family-name:var(--font-mono)]`}
@@ -520,7 +758,7 @@ function LinesTab({
         </Field>
         <button
           type="button"
-          className="w-fit rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
+          className="sl-btn sl-btn-primary w-fit"
           onClick={() =>
             void onSave({
               lineIds: pool
@@ -530,7 +768,7 @@ function LinesTab({
             })
           }
         >
-          Save lines
+          Save phone lines
         </button>
       </div>
     </section>
@@ -540,9 +778,11 @@ function LinesTab({
 function ScheduleTab({
   campaign,
   onSave,
+  onNext,
 }: {
   campaign: CampaignRecord;
   onSave: (body: Partial<CampaignRecord>) => Promise<void>;
+  onNext: () => void;
 }) {
   const s = campaign.schedule;
   const [start, setStart] = useState(String(s.sendWindowStart));
@@ -560,14 +800,25 @@ function ScheduleTab({
   }, [s]);
 
   return (
-    <section className="panel rounded-xl p-5">
-      <h2 className="font-[family-name:var(--font-display)] text-xl">
-        Campaign settings / schedule
-      </h2>
-      <p className="mt-1 text-sm text-[var(--muted)]">
-        Recipient-local time from phone NPA. Hard gate before every drop.
-      </p>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+    <section className="rounded-xl border border-[var(--line)] bg-white p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="font-[family-name:var(--font-display)] text-xl">
+            Settings
+          </h2>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            Schedule · campaign behavior · protection — Smartlead Settings tab.
+          </p>
+        </div>
+        <button type="button" className="sl-btn sl-btn-ghost" onClick={onNext}>
+          Next: Launch
+        </button>
+      </div>
+
+      <h3 className="mt-6 text-sm font-semibold uppercase tracking-wider text-[var(--muted)]">
+        Schedule configuration
+      </h3>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <Field label="Start hour (local)">
           <input
             className={inputClass}
@@ -582,7 +833,7 @@ function ScheduleTab({
             onChange={(e) => setEnd(e.target.value)}
           />
         </Field>
-        <Field label="Send days (0=Sun … 6=Sat)">
+        <Field label="Active days (0=Sun … 6=Sat)">
           <input
             className={inputClass}
             value={days}
@@ -609,9 +860,61 @@ function ScheduleTab({
           </select>
         </Field>
       </div>
+
+      <h3 className="mt-6 text-sm font-semibold uppercase tracking-wider text-[var(--muted)]">
+        Campaign behavior
+      </h3>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={campaign.schedule.stopOnCallback}
+            onChange={(e) =>
+              void onSave({
+                schedule: {
+                  ...campaign.schedule,
+                  stopOnCallback: e.target.checked,
+                },
+              })
+            }
+          />
+          Stop on callback
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={campaign.schedule.stopOnOptOut}
+            onChange={(e) =>
+              void onSave({
+                schedule: {
+                  ...campaign.schedule,
+                  stopOnOptOut: e.target.checked,
+                },
+              })
+            }
+          />
+          Stop on opt-out / STOP
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={campaign.schedule.requireConsent}
+            onChange={(e) =>
+              void onSave({
+                schedule: {
+                  ...campaign.schedule,
+                  requireConsent: e.target.checked,
+                },
+              })
+            }
+          />
+          Require express consent (hard gate)
+        </label>
+      </div>
+
       <button
         type="button"
-        className="mt-4 w-fit rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
+        className="sl-btn sl-btn-primary mt-5 w-fit"
         onClick={() =>
           void onSave({
             schedule: {
@@ -628,7 +931,7 @@ function ScheduleTab({
           })
         }
       >
-        Save schedule
+        Save settings
       </button>
     </section>
   );
@@ -680,9 +983,9 @@ function PreviewTab({
   }
 
   return (
-    <section className="panel rounded-xl p-5">
+    <section className="rounded-xl border border-[var(--line)] bg-white p-5">
       <h2 className="font-[family-name:var(--font-display)] text-xl">
-        Preview send
+        Preview / review
       </h2>
       <p className="mt-1 text-sm text-[var(--muted)]">
         Renders merge variables and checks the local send window for a sample
@@ -766,12 +1069,14 @@ function LaunchTab({
     sendable.length > 0 && hasLines && hasAudio && campaign.schedule.sendDays.length > 0;
 
   return (
-    <section className="panel rounded-xl p-5">
-      <h2 className="font-[family-name:var(--font-display)] text-xl">Launch</h2>
+    <section className="rounded-xl border border-[var(--line)] bg-white p-5">
+      <h2 className="font-[family-name:var(--font-display)] text-xl">
+        Launch Campaign
+      </h2>
       <p className="mt-1 text-sm text-[var(--muted)]">
-        Status: <strong>{campaign.status}</strong>. Railway cron drains ACTIVE
-        campaigns every <strong>5 minutes</strong> with enrollment state (no
-        re-send after SENT). Failures use exponential backoff (cap 8 attempts).
+        Status: <strong>{campaign.status}</strong>. Same Smartlead gate: leads +
+        sequence + phone lines + settings, then go live. Cron drains every 5
+        minutes.
       </p>
       <ul className="mt-4 space-y-1 text-sm">
         <li>
@@ -809,16 +1114,16 @@ function LaunchTab({
         {campaign.status !== "ACTIVE" ? (
           <button
             type="button"
-            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="sl-btn sl-btn-primary"
             onClick={() => void onSave({ status: "ACTIVE" })}
             disabled={!canStart}
           >
-            Start campaign
+            Launch Campaign
           </button>
         ) : (
           <button
             type="button"
-            className="rounded-lg border border-[var(--line)] bg-white px-4 py-2 text-sm"
+            className="sl-btn sl-btn-ghost"
             onClick={() => void onSave({ status: "PAUSED" })}
           >
             Pause
@@ -826,7 +1131,7 @@ function LaunchTab({
         )}
         <button
           type="button"
-          className="rounded-lg border border-[var(--line)] bg-white px-4 py-2 text-sm"
+          className="sl-btn sl-btn-ghost"
           onClick={() => void onSave({ status: "DRAFT" })}
         >
           Back to draft

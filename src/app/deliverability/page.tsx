@@ -16,8 +16,8 @@ export default function DeliverabilityPage() {
 
   return (
     <AppShell
-      title="Deliverability monitor"
-      subtitle="Burn detection combines provider delivery webhooks, callback rates, opt-outs, and carrier analytics labels (Hiya / TNS / First Orion via Voice Integrity or handset probes)."
+      title="Deliverability"
+      subtitle="SmartDelivery equivalent — line reputation, quarantine, and burn signals."
     >
       <div className="grid gap-4">
         {rows.map(({ line, verdict }) => (

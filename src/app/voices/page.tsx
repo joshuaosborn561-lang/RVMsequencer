@@ -24,8 +24,8 @@ const voices = [
 export default function VoicesPage() {
   return (
     <AppShell
-      title="Voice engine"
-      subtitle="You are not regenerating every drop. Generate once at max quality, host the file, pass the same URL to Drop.co / Slybroadcast."
+      title="Voices"
+      subtitle="Campaign audio — generate once (ElevenLabs / upload), reuse URL on every drop."
     >
       <div className="grid gap-4 md:grid-cols-3">
         {voices.map((v) => (

@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import {
+  resolveOwnerFromDid,
+  syncCallbackIfClientOptedIn,
+} from "@/lib/integrations/callback-hubspot";
+import {
   addInboxMessage,
   listCampaigns,
   resolveCallForwardTo,
@@ -18,6 +22,7 @@ import {
 /**
  * Twilio voice/SMS inbound → Master Inbox + call forward to your direct line.
  * Idempotent on CallSid/MessageSid. Signature-checked when TWILIO_AUTH_TOKEN is set.
+ * Voice callbacks (+ SMS callback intent) sync to HubSpot when the owning client opted in.
  */
 export async function POST(req: Request) {
   const contentType = req.headers.get("content-type") ?? "";
@@ -81,6 +86,7 @@ export async function POST(req: Request) {
   }
 
   const providerEventId = callSid || messageSid || undefined;
+  const owner = await resolveOwnerFromDid(to);
 
   if (channel === "VOICE_CALLBACK") {
     const forward = await resolveCallForwardTo();
@@ -95,6 +101,8 @@ export async function POST(req: Request) {
       body: note,
       category: "CALLBACK",
       providerEventId,
+      campaignId: owner.campaignId,
+      clientId: owner.clientId,
     });
 
     const stopOnCallback = (await listCampaigns()).some(
@@ -108,6 +116,16 @@ export async function POST(req: Request) {
         markDnc: true,
       });
     }
+
+    void syncCallbackIfClientOptedIn({
+      phoneE164: from,
+      didE164: to,
+      channel: "VOICE_CALLBACK",
+      body: note,
+      providerEventId,
+      campaignId: owner.campaignId,
+      clientId: owner.clientId,
+    }).catch((err) => console.error("[hubspot] voice callback sync failed", err));
 
     if (!forward.e164) {
       return new NextResponse(
@@ -130,13 +148,19 @@ export async function POST(req: Request) {
   }
 
   const isStop = /^\s*(stop|unsubscribe|cancel|end|quit)\s*$/i.test(body);
+  const isCallbackSms =
+    !isStop &&
+    /\b(call\s*back|callback|call\s*me|interested|please\s*call)\b/i.test(body);
+
   const { message } = await addInboxMessage({
     fromE164: from,
     toE164: to,
     channel,
     body,
-    category: isStop ? "DNC" : "UNREAD",
+    category: isStop ? "DNC" : isCallbackSms ? "CALLBACK" : "UNREAD",
     providerEventId,
+    campaignId: owner.campaignId,
+    clientId: owner.clientId,
   });
 
   if (isStop) {
@@ -145,6 +169,18 @@ export async function POST(req: Request) {
       markDnc: true,
       source: "SMS_STOP",
     });
+  }
+
+  if (isCallbackSms) {
+    void syncCallbackIfClientOptedIn({
+      phoneE164: from,
+      didE164: to,
+      channel: "SMS",
+      body,
+      providerEventId,
+      campaignId: owner.campaignId,
+      clientId: owner.clientId,
+    }).catch((err) => console.error("[hubspot] sms callback sync failed", err));
   }
 
   return new NextResponse(emptyTwiml(), {

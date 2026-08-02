@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { syncCallbackIfClientOptedIn } from "@/lib/integrations/callback-hubspot";
 import {
   listInbox,
   suppressLeadByPhone,
@@ -38,6 +39,15 @@ export async function PATCH(req: Request) {
   }
   if (patch.category === "CALLBACK") {
     await suppressLeadByPhone(message.fromE164, "INBOX_CALLBACK");
+    void syncCallbackIfClientOptedIn({
+      phoneE164: message.fromE164,
+      didE164: message.toE164,
+      channel: message.channel,
+      body: message.body,
+      providerEventId: message.providerEventId,
+      campaignId: message.campaignId,
+      clientId: message.clientId,
+    }).catch((err) => console.error("[hubspot] inbox callback sync failed", err));
   }
 
   return NextResponse.json({ message });

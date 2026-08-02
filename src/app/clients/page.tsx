@@ -8,6 +8,7 @@ export default function ClientsPage() {
   const [clients, setClients] = useState<ClientRecord[]>([]);
   const [keys, setKeys] = useState<ApiKeyRecord[]>([]);
   const [name, setName] = useState("");
+  const [hubspotOptIn, setHubspotOptIn] = useState(false);
   const [keyName, setKeyName] = useState("Default");
   const [clientId, setClientId] = useState("client_demo");
   const [freshKey, setFreshKey] = useState<string | null>(null);
@@ -39,9 +40,41 @@ export default function ClientsPage() {
     await fetch("/api/clients", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: name.trim() }),
+      body: JSON.stringify({
+        name: name.trim(),
+        hubspotOptIn,
+      }),
     });
     setName("");
+    setHubspotOptIn(false);
+    setBusy(false);
+    await load();
+  }
+
+  async function toggleHubspot(client: ClientRecord) {
+    setBusy(true);
+    await fetch("/api/clients", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: client.id,
+        hubspotOptIn: !client.hubspotOptIn,
+      }),
+    });
+    setBusy(false);
+    await load();
+  }
+
+  async function saveOwnerId(client: ClientRecord, ownerId: string) {
+    setBusy(true);
+    await fetch("/api/clients", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: client.id,
+        hubspotOwnerId: ownerId.trim() || null,
+      }),
+    });
     setBusy(false);
     await load();
   }
@@ -72,48 +105,90 @@ export default function ClientsPage() {
   return (
     <AppShell
       title="Client Access"
-      subtitle="Agency view — assign clients and API keys (Smartlead Client Access)."
+      subtitle="Agency view — assign clients, HubSpot opt-in, and API keys."
     >
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="panel rounded-xl p-5">
           <h2 className="font-[family-name:var(--font-display)] text-xl">
             Clients
           </h2>
-          <div className="mt-4 flex gap-2">
-            <input
-              className="flex-1 rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
-              placeholder="Client name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-            <button
-              type="button"
-              disabled={busy || !name.trim()}
-              className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-              onClick={() => void createClient()}
-            >
-              Add
-            </button>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            When HubSpot sync is on, inbound voice callbacks and inbox CALLBACK
+            tags create/update HubSpot contacts for that client&apos;s campaigns.
+          </p>
+          <div className="mt-4 flex flex-col gap-2">
+            <div className="flex gap-2">
+              <input
+                className="flex-1 rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
+                placeholder="Client name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+              <button
+                type="button"
+                disabled={busy || !name.trim()}
+                className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                onClick={() => void createClient()}
+              >
+                Add
+              </button>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-[var(--muted)]">
+              <input
+                type="checkbox"
+                checked={hubspotOptIn}
+                onChange={(e) => setHubspotOptIn(e.target.checked)}
+              />
+              Opt in to HubSpot callback sync
+            </label>
           </div>
           <ul className="mt-4 divide-y divide-[var(--line)]">
             {clients.map((c) => (
-              <li
-                key={c.id}
-                className="flex items-center justify-between gap-3 py-3 text-sm"
-              >
-                <div>
-                  <p className="font-medium">{c.name}</p>
-                  <p className="font-[family-name:var(--font-mono)] text-xs text-[var(--muted)]">
-                    {c.id}
-                  </p>
+              <li key={c.id} className="flex flex-col gap-2 py-3 text-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-medium">{c.name}</p>
+                    <p className="font-[family-name:var(--font-mono)] text-xs text-[var(--muted)]">
+                      {c.id}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className={
+                        c.hubspotOptIn ? "badge badge-ok" : "badge badge-muted"
+                      }
+                      onClick={() => void toggleHubspot(c)}
+                      title="Toggle HubSpot callback sync"
+                    >
+                      HubSpot {c.hubspotOptIn ? "on" : "off"}
+                    </button>
+                    <button
+                      type="button"
+                      className="badge badge-muted"
+                      onClick={() => setClientId(c.id)}
+                    >
+                      {clientId === c.id ? "Selected" : "Select"}
+                    </button>
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  className="badge badge-muted"
-                  onClick={() => setClientId(c.id)}
-                >
-                  {clientId === c.id ? "Selected" : "Select"}
-                </button>
+                {c.hubspotOptIn ? (
+                  <label className="flex flex-col gap-1 text-xs text-[var(--muted)]">
+                    HubSpot owner id (optional)
+                    <input
+                      className="rounded-lg border border-[var(--line)] bg-white px-3 py-1.5 font-[family-name:var(--font-mono)] text-sm text-[var(--ink)]"
+                      defaultValue={c.hubspotOwnerId ?? ""}
+                      placeholder="e.g. 12345678"
+                      onBlur={(e) => {
+                        const next = e.target.value.trim();
+                        if (next !== (c.hubspotOwnerId ?? "")) {
+                          void saveOwnerId(c, next);
+                        }
+                      }}
+                    />
+                  </label>
+                ) : null}
               </li>
             ))}
           </ul>

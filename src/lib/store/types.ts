@@ -2,6 +2,13 @@ export type ClientRecord = {
   id: string;
   name: string;
   createdAt: string;
+  /**
+   * When true, inbound callbacks (voice) and inbox CALLBACK tags sync to HubSpot
+   * for this client's campaigns. Requires HUBSPOT_ACCESS_TOKEN.
+   */
+  hubspotOptIn?: boolean;
+  /** Optional HubSpot owner id for assigned callbacks. */
+  hubspotOwnerId?: string;
 };
 
 export type ApiKeyRecord = {

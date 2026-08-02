@@ -37,6 +37,7 @@ Add Redis in Railway: **New → Database → Redis**, then variable reference `R
 | `TWILIO_AUTH_TOKEN` | Yes for inbound | Signature validation |
 | `CALL_FORWARD_TO_E164` | Yes for callbacks | Your direct line |
 | `RVM_STATUS_WEBHOOK_SECRET` | Yes for status reconcile | Bearer for `/api/webhooks/rvm-status` |
+| `HUBSPOT_ACCESS_TOKEN` | Optional | Private app token; callbacks sync only for clients with HubSpot opt-in |
 
 ---
 

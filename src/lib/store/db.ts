@@ -600,14 +600,52 @@ export async function listClients() {
   return (await readStoreUnlocked()).clients;
 }
 
-export async function createClient(name: string): Promise<ClientRecord> {
+export async function getClient(clientId: string): Promise<ClientRecord | null> {
+  const client = (await readStoreUnlocked()).clients.find((c) => c.id === clientId);
+  return client ?? null;
+}
+
+export async function createClient(
+  input:
+    | string
+    | {
+        name: string;
+        hubspotOptIn?: boolean;
+        hubspotOwnerId?: string;
+      },
+): Promise<ClientRecord> {
+  const name = typeof input === "string" ? input : input.name;
+  const hubspotOptIn =
+    typeof input === "string" ? undefined : input.hubspotOptIn;
+  const hubspotOwnerId =
+    typeof input === "string" ? undefined : input.hubspotOwnerId;
   return mutateStore((store) => {
     const client: ClientRecord = {
       id: `client_${randomUUID().slice(0, 8)}`,
-      name,
+      name: name.trim(),
       createdAt: new Date().toISOString(),
+      hubspotOptIn: Boolean(hubspotOptIn),
+      hubspotOwnerId: hubspotOwnerId?.trim() || undefined,
     };
     store.clients.push(client);
+    return client;
+  });
+}
+
+export async function updateClient(
+  clientId: string,
+  patch: Partial<Pick<ClientRecord, "name" | "hubspotOptIn" | "hubspotOwnerId">>,
+): Promise<ClientRecord | null> {
+  return mutateStore((store) => {
+    const client = store.clients.find((c) => c.id === clientId);
+    if (!client) return null;
+    if (patch.name !== undefined) client.name = patch.name.trim();
+    if (patch.hubspotOptIn !== undefined) {
+      client.hubspotOptIn = Boolean(patch.hubspotOptIn);
+    }
+    if (patch.hubspotOwnerId !== undefined) {
+      client.hubspotOwnerId = patch.hubspotOwnerId.trim() || undefined;
+    }
     return client;
   });
 }

@@ -154,6 +154,25 @@ export const mcpTools: McpToolDef[] = [
     covers: ["src/app/api/campaigns/[id]/route.ts"],
   },
   {
+    name: "campaigns_send_now",
+    description:
+      "Activate campaign and immediately drain (test drop / start sending without waiting for cron).",
+    method: "POST",
+    path: "/api/campaigns/{id}/send-now",
+    pathParams: ["id"],
+    body: true,
+    inputSchema: {
+      type: "object",
+      required: ["id"],
+      properties: {
+        id: { type: "string" },
+        audioUrl: { type: "string" },
+        limit: { type: "integer" },
+      },
+    },
+    covers: ["src/app/api/campaigns/[id]/send-now/route.ts"],
+  },
+  {
     name: "campaigns_preview",
     description: "Preview personalized script + send-window for a campaign lead.",
     method: "POST",

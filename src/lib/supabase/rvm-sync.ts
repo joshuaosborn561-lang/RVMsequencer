@@ -179,6 +179,41 @@ export async function insertReputationCheck(row: RvmReputationCheckRow) {
   });
 }
 
+export async function insertAuditLog(row: {
+  id: string;
+  at: string;
+  action: string;
+  actor: string;
+  entity_type: string;
+  entity_id?: string;
+  campaign_id?: string;
+  client_id?: string;
+  detail?: Record<string, unknown>;
+}) {
+  if (!supabaseConfig()) return { skipped: true as const, ok: false as const };
+  return sbFetch("rvm_audit_log", {
+    method: "POST",
+    prefer: "return=minimal",
+    body: JSON.stringify([row]),
+  });
+}
+
+export async function upsertSeedNumberRow(row: {
+  id: string;
+  e164: string;
+  label?: string;
+  carrier?: string;
+  active: boolean;
+  last_drop_at?: string;
+}) {
+  if (!supabaseConfig()) return { skipped: true as const, ok: false as const };
+  return sbFetch("rvm_seed_numbers?on_conflict=e164", {
+    method: "POST",
+    prefer: "resolution=merge-duplicates,return=representation",
+    body: JSON.stringify([{ ...row, updated_at: new Date().toISOString() }]),
+  });
+}
+
 /** Pull Slybroadcast campaign_result and patch dial_status / fail_reason / carrier. */
 export async function refreshSlybroadcastOutcome(sessionId: string) {
   const uid = process.env.SLYBROADCAST_UID?.trim();

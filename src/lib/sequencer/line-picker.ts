@@ -6,27 +6,26 @@ export type PickableLine = {
   dailyCap: number;
   sentToday: number;
   reputationLabel: "UNFLAGGED" | "MIXED_LOW" | "MIXED_HIGH" | "FLAGGED" | "UNKNOWN";
-  /** Warmup age in days — older healthy lines get more weight. */
   warmupDay?: number;
   lastSentAt?: string | null;
   minGapSec?: number;
+  registeredFcr?: boolean;
 };
 
 const ELIGIBLE = new Set(["WARMING", "HEALTHY", "DEGRADED"]);
 
 export type PickLineOptions = {
   now?: Date;
-  /** Prefer this sticky line if still eligible. */
   stickyLineId?: string;
-  /** Rotation: weighted (default) | lru | round_robin */
   mode?: "weighted" | "lru" | "round_robin";
-  /** Round-robin cursor (line id). */
   roundRobinAfterId?: string;
+  /** When true, only lines with registeredFcr may be picked. */
+  requireFcr?: boolean;
 };
 
 /**
  * Pick a line for the next RVM (Warmbly-style mailbox-first):
- * capacity + min gap + local presence + reputation + warmup weight.
+ * capacity + min gap + FCR + local presence + reputation + warmup weight.
  */
 export function pickLine(
   lines: PickableLine[],
@@ -40,6 +39,7 @@ export function pickLine(
     .filter((l) => ELIGIBLE.has(l.status))
     .filter((l) => l.sentToday < l.dailyCap)
     .filter((l) => l.reputationLabel !== "FLAGGED")
+    .filter((l) => (opts?.requireFcr ? Boolean(l.registeredFcr) : true))
     .filter((l) => respectsMinGap(l, now));
 
   if (candidates.length === 0) return null;
@@ -64,7 +64,6 @@ export function pickLine(
     return candidates[(idx + 1) % candidates.length]!;
   }
 
-  // Weighted: local presence + reputation + remaining capacity + warmup age
   const scored = candidates.map((line) => {
     let score = 0;
     if (destArea && line.areaCode === destArea) score += 100;
@@ -74,7 +73,7 @@ export function pickLine(
     score += Math.min(line.warmupDay ?? 0, 30);
     if (line.status === "HEALTHY") score += 10;
     if (line.status === "DEGRADED") score -= 15;
-    // Mild randomness so ties don't always pick the same DID
+    if (line.registeredFcr) score += 5;
     score += Math.random() * 3;
     return { line, score };
   });

@@ -1,24 +1,52 @@
 import { SEND_JITTER_MAX_SEC } from "@/lib/hardening/constants";
 
 /**
- * Humanize send timing: avoid always sending on the tick boundary.
- * Returns a Date in the future (or now) with 0..maxSec random delay.
- * Also nudges away from exact :00 / :30 local minutes when possible.
+ * Humanize send timing.
+ * Prefer pacing-based ±40% of ideal interval (window ÷ dailyCap);
+ * fall back to fixed SEND_JITTER_MAX_SEC.
  */
 export function humanizeSendAt(
   base: Date,
-  opts?: { maxJitterSec?: number; salt?: string },
+  opts?: {
+    maxJitterSec?: number;
+    salt?: string;
+    /** Send-window length in hours (exclusive end − start). */
+    windowHours?: number;
+    /** Effective daily cap used for pacing. */
+    dailyCap?: number;
+  },
 ): Date {
-  const max = opts?.maxJitterSec ?? SEND_JITTER_MAX_SEC;
-  const n = opts?.salt
-    ? hashToUnit(opts.salt)
-    : Math.random();
+  let max = opts?.maxJitterSec;
+  if (max == null && opts?.windowHours != null && opts?.dailyCap != null) {
+    max = pacingJitterSec({
+      windowHours: opts.windowHours,
+      dailyCap: opts.dailyCap,
+    });
+  }
+  max = max ?? SEND_JITTER_MAX_SEC;
+
+  const n = opts?.salt ? hashToUnit(opts.salt) : Math.random();
   let ms = Math.floor(n * max * 1000);
   const minute = new Date(base.getTime() + ms).getUTCMinutes();
   if (minute === 0 || minute === 30) {
     ms += 17_000 + Math.floor(n * 40_000);
   }
   return new Date(base.getTime() + ms);
+}
+
+/**
+ * Ideal gap = windowSec / dailyCap.
+ * Max defer jitter = 40% of that ideal (±40% pacing).
+ */
+export function pacingJitterSec(input: {
+  windowHours: number;
+  dailyCap: number;
+}): number {
+  const windowSec = Math.max(1, input.windowHours) * 3600;
+  const ideal = windowSec / Math.max(1, input.dailyCap);
+  const fortyPct = ideal * 0.4;
+  // Keep defer usable on a 5-min cron: at least 30s, at most 45 min
+  return Math.round(Math.min(45 * 60, Math.max(30, fortyPct)));
 }
 
 function hashToUnit(s: string): number {

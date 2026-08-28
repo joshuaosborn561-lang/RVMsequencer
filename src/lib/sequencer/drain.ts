@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { getDncScrubbers, getDefaultDelivery } from "@/lib/config";
-import { HARD_CAP_ACTIVE_CAMPAIGNS } from "@/lib/hardening/constants";
+import { HARD_CAP_ACTIVE_CAMPAIGNS, MAX_ATTEMPTS_PER_CONTACT_PER_DAY } from "@/lib/hardening/constants";
+import { toE164 } from "@/lib/phone";
+import { pickSeedsForInject } from "@/lib/seeds/types";
 import {
   nextFailureEligibleAt,
   shouldGiveUp,
@@ -14,16 +16,25 @@ import {
 import { runAttempt } from "@/lib/sequencer/run-attempt";
 import {
   acquireCampaignLease,
+  advanceLineWarmups,
+  appendAudit,
+  bumpContactAttempt,
   bumpLineSent,
   countSentToday,
   createAttempt,
   ensureLine,
   findSentAttemptForStep,
+  getContactAttemptsToday,
   getSettings,
+  getSuppression,
+  importLeads,
+  isClientExcluded,
   isSuppressed,
   listCampaigns,
   listLeads,
   listLines,
+  listSeedNumbers,
+  markSeedDropped,
   releaseCampaignLease,
   updateAttempt,
   updateCampaign,
@@ -40,6 +51,7 @@ import {
   countDueScheduled,
   countPendingScheduled,
   deferScheduledSend,
+  eagerScheduleCampaign,
   updateScheduledSend,
 } from "@/lib/store/scheduled";
 import type { CampaignRecord, LeadRecord, LineRecord } from "@/lib/store/types";
@@ -103,6 +115,16 @@ export async function drainActiveCampaigns(
   const orgCap = await sharedOrgDailyCap();
   let orgSent = await getSharedOrgSendsToday(now);
   const immediate = Boolean(opts?.immediate);
+  const requireFcr = settings.requireFcrRegistration === true;
+  const maxPerDay =
+    settings.maxAttemptsPerContactPerDay ?? MAX_ATTEMPTS_PER_CONTACT_PER_DAY;
+  const seedLimit = settings.seedInjectPerCampaignPerDay ?? 2;
+
+  // Once-daily warmup advance for all active lines
+  await advanceLineWarmups(now);
+
+  // Inject seed/canary leads into ACTIVE campaigns (then scheduled below via claim path)
+  await injectSeedsIntoActiveCampaigns(now, seedLimit);
 
   let campaigns = (await listCampaigns()).filter((c) => c.status === "ACTIVE");
   if (campaigns.length > HARD_CAP_ACTIVE_CAMPAIGNS) {
@@ -226,6 +248,15 @@ export async function drainActiveCampaigns(
         const jittered = humanizeSendAt(now, {
           salt: `${sch.leadId}:${sch.stepPosition}`,
           maxJitterSec: immediate ? 0 : undefined,
+          windowHours: Math.max(
+            1,
+            campaign.schedule.sendWindowEnd - campaign.schedule.sendWindowStart,
+          ),
+          dailyCap: Math.max(
+            1,
+            ...lines.map((l) => l.dailyCap),
+            campaign.schedule.newLeadsPerDay,
+          ),
         });
         if (!immediate && jittered.getTime() > now.getTime() + 5_000) {
           await deferScheduledSend(sch.id, jittered, "JITTER_DEFER");
@@ -288,8 +319,10 @@ export async function drainActiveCampaigns(
           warmupDay: l.warmupDay,
           lastSentAt: l.lastSentAt,
           minGapSec: l.minGapSec,
+          registeredFcr: l.registeredFcr,
         }));
 
+        const attemptsToday = await getContactAttemptsToday(lead.phoneE164, now);
         const result = await runAttempt({
           lead: {
             id: lead.id,
@@ -298,12 +331,18 @@ export async function drainActiveCampaigns(
             lastName: lead.lastName,
             company: lead.company,
             timezone: lead.timezone,
-            postalCode: lead.custom?.zip ?? lead.custom?.postal_code ?? lead.custom?.postalCode,
+            postalCode:
+              lead.custom?.zip ??
+              lead.custom?.postal_code ??
+              lead.custom?.postalCode,
+            state: lead.custom?.state ?? lead.custom?.State ?? null,
+            city: lead.custom?.city ?? lead.custom?.City ?? null,
             consentStatus: lead.consentStatus,
             dnc: lead.dnc,
           },
           campaign: {
             id: campaign.id,
+            clientId: campaign.clientId,
             scriptTemplate: step.scriptTemplate,
             audioUrl: step.audioUrl ?? campaign.audioUrl,
             schedule: {
@@ -311,6 +350,8 @@ export async function drainActiveCampaigns(
               sendWindowEnd: campaign.schedule.sendWindowEnd,
               sendDays: campaign.schedule.sendDays,
               requireConsent: campaign.schedule.requireConsent,
+              timezoneMode: campaign.schedule.timezoneMode,
+              fixedTimezone: campaign.schedule.fixedTimezone,
             },
           },
           lines: pickable,
@@ -319,6 +360,13 @@ export async function drainActiveCampaigns(
           delivery: getDefaultDelivery(),
           now,
           isSuppressed: (phone) => isSuppressed(phone),
+          getSuppressionSource: async (phone) =>
+            (await getSuppression(phone))?.source ?? null,
+          isClientExcluded: (clientId, phone) =>
+            isClientExcluded(clientId, phone),
+          attemptsToday,
+          maxAttemptsPerDay: maxPerDay,
+          requireFcr,
           callbackUrl: statusWebhook,
           foreignId: sch.idempotencyKey,
         });
@@ -328,11 +376,29 @@ export async function drainActiveCampaigns(
           out.sent += 1;
           orgSent = await incrementSharedOrgSends(now);
           await bumpLineSent(result.lineId, now);
+          await bumpContactAttempt(lead.phoneE164, now);
+          await appendAudit({
+            action: "ATTEMPT_SENT",
+            actor: "cron",
+            entityType: "lead",
+            entityId: lead.id,
+            campaignId: campaign.id,
+            clientId: campaign.clientId,
+            detail: {
+              lineId: result.lineId,
+              providerMessageId: result.providerMessageId,
+              appliedWindow: result.appliedWindow,
+              isSeed: lead.custom?.isSeed === "true",
+            },
+          });
           // Update in-memory line for poolExhausted mid-batch
           const ln = lines.find((l) => l.id === result.lineId);
           if (ln) {
             ln.sentToday += 1;
             ln.lastSentAt = now.toISOString();
+          }
+          if (lead.custom?.isSeed === "true" || lead.custom?.seedId) {
+            await markSeedDropped(lead.custom.seedId ?? lead.phoneE164, now);
           }
           await updateAttempt(attempt.id, {
             status: "SENT",
@@ -385,7 +451,31 @@ export async function drainActiveCampaigns(
         } else if (result.status === "SKIPPED") {
           campaignSkipped += 1;
           out.skipped += 1;
-          if (
+          await appendAudit({
+            action: "ATTEMPT_SKIPPED",
+            actor: "cron",
+            entityType: "lead",
+            entityId: lead.id,
+            campaignId: campaign.id,
+            clientId: campaign.clientId,
+            detail: {
+              reason: result.reason,
+              detail: result.detail,
+              appliedWindow: result.appliedWindow,
+            },
+          });
+          const frequencyOnly =
+            result.reason === "SUPPRESSED" &&
+            (result.detail ?? "").startsWith("DAILY_FREQUENCY_CAP");
+          if (frequencyOnly) {
+            const next = new Date(now.getTime() + 6 * 60 * 60 * 1000);
+            await deferScheduledSend(sch.id, next, result.detail ?? result.reason);
+            await updateAttempt(attempt.id, {
+              status: "SKIPPED",
+              reason: result.detail ?? result.reason,
+              completedAt: now.toISOString(),
+            });
+          } else if (
             result.reason === "DNC" ||
             result.reason === "OPTED_OUT" ||
             result.reason === "SCRUB_BLOCKED" ||
@@ -394,7 +484,7 @@ export async function drainActiveCampaigns(
             out.suppressed += 1;
             await updateAttempt(attempt.id, {
               status: "SUPPRESSED",
-              reason: result.reason,
+              reason: result.detail ?? result.reason,
               completedAt: now.toISOString(),
             });
             await updateScheduledSend(sch.id, {
@@ -403,8 +493,11 @@ export async function drainActiveCampaigns(
             });
             await updateLead(lead.id, {
               status: "SUPPRESSED",
-              dnc: true,
-              suppressReason: result.reason,
+              dnc:
+                result.reason === "DNC" || result.reason === "SCRUB_BLOCKED"
+                  ? true
+                  : lead.dnc,
+              suppressReason: result.detail ?? result.reason,
               consentStatus:
                 result.reason === "OPTED_OUT" ? "OPTED_OUT" : lead.consentStatus,
               lastError: result.detail ?? result.reason,
@@ -532,6 +625,44 @@ export async function drainActiveCampaigns(
   }
 
   return out;
+}
+
+async function injectSeedsIntoActiveCampaigns(now: Date, limit: number) {
+  const seeds = pickSeedsForInject(await listSeedNumbers(), { limit: 50, now });
+  if (seeds.length === 0 || limit <= 0) return;
+  const campaigns = (await listCampaigns()).filter((c) => c.status === "ACTIVE");
+  for (const campaign of campaigns) {
+    if (!campaign.audioUrl && !campaign.steps.some((s) => s.audioUrl)) continue;
+    const existing = await listLeads(campaign.id);
+    const have = new Set(existing.map((l) => l.phoneE164));
+    const toAdd = seeds
+      .filter((s) => !have.has(s.e164))
+      .slice(0, limit)
+      .map((s) => {
+        const e164 = toE164(s.e164) ?? s.e164;
+        return {
+          phoneE164: e164,
+          firstName: "Seed",
+          lastName: s.label ?? s.carrier ?? "Canary",
+          custom: { isSeed: "true", seedId: s.id },
+          dnc: false,
+          consentStatus: "UNKNOWN" as const,
+        };
+      });
+    if (toAdd.length === 0) continue;
+    await importLeads(campaign.id, toAdd, { mode: "append" });
+    const leads = await listLeads(campaign.id);
+    await eagerScheduleCampaign({ campaign, leads });
+    await appendAudit({
+      action: "SEED_INJECTED",
+      actor: "cron",
+      entityType: "campaign",
+      entityId: campaign.id,
+      campaignId: campaign.id,
+      clientId: campaign.clientId,
+      detail: { phones: toAdd.map((t) => t.phoneE164) },
+    });
+  }
 }
 
 async function advanceLeadAfterStep(

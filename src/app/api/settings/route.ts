@@ -25,6 +25,9 @@ const Body = z.object({
   callForwardTimeoutSec: z.number().int().min(5).max(120).optional(),
   hardCapDailySends: z.number().int().min(1).max(100_000).optional(),
   lineMinGapSec: z.number().int().min(0).max(86_400).optional(),
+  requireFcrRegistration: z.boolean().optional(),
+  maxAttemptsPerContactPerDay: z.number().int().min(1).max(20).optional(),
+  seedInjectPerCampaignPerDay: z.number().int().min(0).max(50).optional(),
 });
 
 export async function PATCH(req: Request) {
@@ -38,6 +41,9 @@ export async function PATCH(req: Request) {
     callForwardTimeoutSec?: number;
     hardCapDailySends?: number;
     lineMinGapSec?: number;
+    requireFcrRegistration?: boolean;
+    maxAttemptsPerContactPerDay?: number;
+    seedInjectPerCampaignPerDay?: number;
   } = {};
 
   if (parsed.data.callForwardTimeoutSec != null) {
@@ -48,6 +54,15 @@ export async function PATCH(req: Request) {
   }
   if (parsed.data.lineMinGapSec != null) {
     patch.lineMinGapSec = parsed.data.lineMinGapSec;
+  }
+  if (parsed.data.requireFcrRegistration != null) {
+    patch.requireFcrRegistration = parsed.data.requireFcrRegistration;
+  }
+  if (parsed.data.maxAttemptsPerContactPerDay != null) {
+    patch.maxAttemptsPerContactPerDay = parsed.data.maxAttemptsPerContactPerDay;
+  }
+  if (parsed.data.seedInjectPerCampaignPerDay != null) {
+    patch.seedInjectPerCampaignPerDay = parsed.data.seedInjectPerCampaignPerDay;
   }
 
   if (parsed.data.callForwardToE164 !== undefined) {

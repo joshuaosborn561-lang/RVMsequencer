@@ -47,6 +47,7 @@ const PatchBody = z.object({
   reputationLabel: z
     .enum(["UNFLAGGED", "MIXED_LOW", "MIXED_HIGH", "FLAGGED", "UNKNOWN"])
     .optional(),
+  registeredFcr: z.boolean().optional(),
   /** Re-point Twilio VoiceUrl to this app */
   configureVoice: z.boolean().optional(),
 });
@@ -70,9 +71,20 @@ export async function PATCH(req: Request) {
     warmupDay: parsed.data.warmupDay,
     minGapSec: parsed.data.minGapSec,
     reputationLabel: parsed.data.reputationLabel,
+    registeredFcr: parsed.data.registeredFcr,
   });
   if (!line) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+  if (parsed.data.registeredFcr != null) {
+    const { appendAudit } = await import("@/lib/store/db");
+    await appendAudit({
+      action: "FCR_UPDATED",
+      actor: "api",
+      entityType: "line",
+      entityId: line.id,
+      detail: { e164: line.e164, registeredFcr: line.registeredFcr },
+    });
   }
   let twilio: Awaited<ReturnType<typeof configureTwilioNumberWebhooks>> | undefined;
   if (parsed.data.configureVoice) {

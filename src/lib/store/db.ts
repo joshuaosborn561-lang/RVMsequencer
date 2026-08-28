@@ -156,15 +156,31 @@ export async function appendAudit(
   event: Omit<AuditEventRecord, "id" | "at"> &
     Partial<Pick<AuditEventRecord, "id" | "at">>,
 ): Promise<AuditEventRecord> {
-  return mutateStore((store) => {
-    const row = createAuditEvent(
+  const row = await mutateStore((store) => {
+    const created = createAuditEvent(
       event as Parameters<typeof createAuditEvent>[0],
     ) as AuditEventRecord;
     const events = (store.auditEvents ??= []);
-    events.push(row);
+    events.push(created);
     while (events.length > 5_000) events.shift();
-    return row;
+    return created;
   });
+  void import("@/lib/supabase/rvm-sync")
+    .then(({ insertAuditLog }) =>
+      insertAuditLog({
+        id: row.id,
+        at: row.at,
+        action: row.action,
+        actor: row.actor,
+        entity_type: row.entityType,
+        entity_id: row.entityId,
+        campaign_id: row.campaignId,
+        client_id: row.clientId,
+        detail: row.detail,
+      }),
+    )
+    .catch(() => undefined);
+  return row;
 }
 
 export async function listAuditEvents(opts?: {
@@ -680,7 +696,7 @@ export async function advanceLineWarmups(
       if (line.status !== "QUARANTINED") {
         line.status = suggestLineStatus({
           warmupDay: line.warmupDay,
-          targetCap: line.dailyCap,
+          targetCap: 80,
           reputation: line.reputationLabel,
         });
       }
@@ -1030,7 +1046,9 @@ export async function upsertSeedNumber(input: {
 }): Promise<SeedNumberRecord> {
   return mutateStore((store) => {
     const seeds = (store.seedNumbers ??= []);
-    const existing = seeds.find((seed) => seed.e164 === input.e164);
+    const existing = seeds.find(
+      (seed) => seed.e164 === input.e164 || seed.id === input.e164,
+    );
     if (existing) {
       if (input.label !== undefined) existing.label = input.label;
       if (input.carrier !== undefined) existing.carrier = input.carrier;

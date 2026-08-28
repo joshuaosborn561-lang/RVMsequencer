@@ -165,6 +165,10 @@ export type LineRecord = {
   lastSentAt?: string;
   reputationLabel: "UNFLAGGED" | "MIXED_LOW" | "MIXED_HIGH" | "FLAGGED" | "UNKNOWN";
   minGapSec?: number;
+  /** Free Caller Registry / Voice Integrity registration complete. */
+  registeredFcr?: boolean;
+  /** UTC date YYYY-MM-DD of last warmup day advance. */
+  lastWarmupAdvanceDate?: string;
 };
 
 export type InboxMessage = {
@@ -185,10 +189,17 @@ export type InboxMessage = {
 export type WorkspaceSettings = {
   callForwardToE164?: string;
   callForwardTimeoutSec?: number;
+  /** Pool-wide dual cap (org daily deposits). Default 300. */
   hardCapDailySends?: number;
   lineMinGapSec?: number;
   /** ISO timestamp of last daily spam/blacklist reputation pass. */
   lastReputationCheckAt?: string;
+  /** When true, line picker requires registeredFcr. */
+  requireFcrRegistration?: boolean;
+  /** Max attempts per phone per UTC day (default 3). */
+  maxAttemptsPerContactPerDay?: number;
+  /** How many seed drops to inject per ACTIVE campaign per day. */
+  seedInjectPerCampaignPerDay?: number;
 };
 
 /** Saved defaults so Claude / skills can reuse setup across chats. */
@@ -227,6 +238,36 @@ export type AudioAsset = {
   createdAt: string;
 };
 
+export type ClientExclusion = {
+  id: string;
+  clientId: string;
+  phoneE164: string;
+  reason?: string;
+  createdAt: string;
+};
+
+export type SeedNumberRecord = {
+  id: string;
+  e164: string;
+  label?: string;
+  carrier?: string;
+  active: boolean;
+  lastDropAt?: string;
+  createdAt: string;
+};
+
+export type AuditEventRecord = {
+  id: string;
+  at: string;
+  action: string;
+  actor: string;
+  entityType: string;
+  entityId?: string;
+  campaignId?: string;
+  clientId?: string;
+  detail?: Record<string, unknown>;
+};
+
 export type StoreShape = {
   clients: ClientRecord[];
   apiKeys: ApiKeyRecord[];
@@ -241,6 +282,14 @@ export type StoreShape = {
   lines: LineRecord[];
   /** UTC date YYYY-MM-DD → org send count */
   dailySendCounts: Record<string, number>;
+  /** `${utcDate}:${e164}` → attempt count that day */
+  contactDailyCounts?: Record<string, number>;
+  /** Append-only audit trail */
+  auditEvents?: AuditEventRecord[];
+  /** Canary / seed numbers for delivery verification */
+  seedNumbers?: SeedNumberRecord[];
+  /** Per-client phone exclusions */
+  clientExclusions?: ClientExclusion[];
 };
 
 export const MAX_SEND_ATTEMPTS = 8;

@@ -372,6 +372,9 @@ export const mcpTools: McpToolDef[] = [
         callForwardTimeoutSec: { type: "number" },
         hardCapDailySends: { type: "number" },
         lineMinGapSec: { type: "number" },
+        requireFcrRegistration: { type: "boolean" },
+        maxAttemptsPerContactPerDay: { type: "integer" },
+        seedInjectPerCampaignPerDay: { type: "integer" },
       },
     },
     covers: ["src/app/api/settings/route.ts"],
@@ -402,7 +405,7 @@ export const mcpTools: McpToolDef[] = [
   {
     name: "lines_update",
     description:
-      "Update a line's dailyCap, status, warmupDay, or minGapSec. Ask the user how many drops/day per DID.",
+      "Update a line's dailyCap, status, warmupDay, minGapSec, or registeredFcr. Ask the user how many drops/day per DID.",
     method: "PATCH",
     path: "/api/lines",
     body: true,
@@ -418,6 +421,10 @@ export const mcpTools: McpToolDef[] = [
         },
         warmupDay: { type: "integer" },
         minGapSec: { type: "integer", description: "Min seconds between deposits on this DID" },
+        registeredFcr: {
+          type: "boolean",
+          description: "Mark Free Caller Registry / Voice Integrity complete",
+        },
       },
     },
     covers: ["src/app/api/lines/route.ts"],
@@ -582,6 +589,55 @@ export const mcpTools: McpToolDef[] = [
       },
     },
     covers: ["src/app/api/reputation/check/route.ts"],
+  },
+  {
+    name: "quiet_hours_list",
+    description:
+      "List federal + US state quiet-hours clamps applied to campaign send windows.",
+    method: "GET",
+    path: "/api/quiet-hours",
+    inputSchema: { type: "object", properties: {} },
+    covers: ["src/app/api/quiet-hours/route.ts"],
+  },
+  {
+    name: "audit_list",
+    description: "List append-only audit events (sends, skips, suppressions, seeds, FCR).",
+    method: "GET",
+    path: "/api/audit",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "integer" },
+        campaignId: { type: "string" },
+      },
+    },
+    covers: ["src/app/api/audit/route.ts"],
+  },
+  {
+    name: "seeds_list",
+    description: "List seed/canary numbers used to verify RVM delivery.",
+    method: "GET",
+    path: "/api/seeds",
+    inputSchema: { type: "object", properties: {} },
+    covers: ["src/app/api/seeds/route.ts"],
+  },
+  {
+    name: "seeds_upsert",
+    description: "Add or update a seed/canary phone number for delivery verification.",
+    method: "POST",
+    path: "/api/seeds",
+    body: true,
+    inputSchema: {
+      type: "object",
+      required: ["e164"],
+      properties: {
+        e164: { type: "string" },
+        label: { type: "string" },
+        carrier: { type: "string" },
+        active: { type: "boolean" },
+      },
+    },
+    covers: ["src/app/api/seeds/route.ts"],
   },
   {
     name: "delivery_status",

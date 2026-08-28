@@ -7,18 +7,23 @@ import {
   DEFAULT_LINE_MIN_GAP_SEC,
   HARD_CAP_DAILY_SENDS,
 } from "@/lib/hardening/constants";
+import { createAuditEvent } from "@/lib/audit/log";
 import { demoLines } from "@/lib/demo/data";
+import { dailyCapForWarmupDay, suggestLineStatus } from "@/lib/warmup/schedule";
 import { withStoreLock } from "./lock";
 import type {
   ApiKeyRecord,
   AttemptRecord,
+  AuditEventRecord,
   AudioAsset,
   CampaignRecord,
   ClaudePreferences,
+  ClientExclusion,
   ClientRecord,
   InboxMessage,
   LeadRecord,
   LineRecord,
+  SeedNumberRecord,
   StoreShape,
   SuppressionRecord,
   WorkspaceSettings,
@@ -49,6 +54,7 @@ function seedLines(): LineRecord[] {
     sentTodayDate: utcDateKey(),
     reputationLabel: l.reputationLabel,
     minGapSec: DEFAULT_LINE_MIN_GAP_SEC,
+    registeredFcr: l.registeredFcr ?? false,
   }));
 }
 
@@ -64,13 +70,17 @@ const defaultStore = (): StoreShape => ({
   campaigns: [],
   leads: [],
   inbox: [],
-  settings: { callForwardTimeoutSec: 30 },
+  settings: { callForwardTimeoutSec: 30, hardCapDailySends: 300 },
   preferences: {},
   audioAssets: [],
   suppressions: [],
   attempts: [],
   lines: seedLines(),
   dailySendCounts: {},
+  contactDailyCounts: {},
+  auditEvents: [],
+  seedNumbers: [],
+  clientExclusions: [],
 });
 
 function normalizeLead(lead: LeadRecord): LeadRecord {
@@ -116,6 +126,10 @@ async function readStoreUnlocked(): Promise<StoreShape> {
       attempts: parsed.attempts ?? base.attempts,
       lines: parsed.lines?.length ? parsed.lines : base.lines,
       dailySendCounts: parsed.dailySendCounts ?? {},
+      contactDailyCounts: parsed.contactDailyCounts ?? {},
+      auditEvents: parsed.auditEvents ?? [],
+      seedNumbers: parsed.seedNumbers ?? [],
+      clientExclusions: parsed.clientExclusions ?? [],
     };
   } catch {
     const fresh = defaultStore();
@@ -136,6 +150,31 @@ async function mutateStore<T>(fn: (store: StoreShape) => T | Promise<T>): Promis
     await writeStoreUnlocked(store);
     return result;
   });
+}
+
+export async function appendAudit(
+  event: Omit<AuditEventRecord, "id" | "at"> &
+    Partial<Pick<AuditEventRecord, "id" | "at">>,
+): Promise<AuditEventRecord> {
+  return mutateStore((store) => {
+    const row = createAuditEvent(
+      event as Parameters<typeof createAuditEvent>[0],
+    ) as AuditEventRecord;
+    const events = (store.auditEvents ??= []);
+    events.push(row);
+    while (events.length > 5_000) events.shift();
+    return row;
+  });
+}
+
+export async function listAuditEvents(opts?: {
+  limit?: number;
+  campaignId?: string;
+}): Promise<AuditEventRecord[]> {
+  const events = [...((await readStoreUnlocked()).auditEvents ?? [])]
+    .filter((event) => !opts?.campaignId || event.campaignId === opts.campaignId)
+    .sort((a, b) => b.at.localeCompare(a.at));
+  return opts?.limit == null ? events : events.slice(0, Math.max(0, opts.limit));
 }
 
 function rollLineDay(line: LineRecord, now: Date) {
@@ -396,6 +435,16 @@ function isPhoneSuppressed(store: StoreShape, phoneE164: string): boolean {
   return store.suppressions.some((s) => s.phoneE164 === phoneE164);
 }
 
+export async function getSuppression(
+  phoneE164: string,
+): Promise<SuppressionRecord | null> {
+  return (
+    (await readStoreUnlocked()).suppressions.find(
+      (suppression) => suppression.phoneE164 === phoneE164,
+    ) ?? null
+  );
+}
+
 export async function isSuppressed(phoneE164: string): Promise<boolean> {
   return isPhoneSuppressed(await readStoreUnlocked(), phoneE164);
 }
@@ -574,13 +623,14 @@ export async function ensureLine(e164: string): Promise<LineRecord> {
       id: `ln_${randomUUID().slice(0, 8)}`,
       e164,
       areaCode: e164.replace(/\D/g, "").slice(1, 4),
-      status: "HEALTHY",
-      warmupDay: 14,
-      dailyCap: 80,
+      status: "WARMING",
+      warmupDay: 0,
+      dailyCap: dailyCapForWarmupDay(0),
       sentToday: 0,
       sentTodayDate: utcDateKey(),
       reputationLabel: "UNKNOWN",
       minGapSec: DEFAULT_LINE_MIN_GAP_SEC,
+      registeredFcr: false,
     };
     store.lines.push(row);
     return row;
@@ -590,7 +640,15 @@ export async function ensureLine(e164: string): Promise<LineRecord> {
 export async function updateLine(
   idOrE164: string,
   patch: Partial<
-    Pick<LineRecord, "dailyCap" | "status" | "warmupDay" | "minGapSec" | "reputationLabel">
+    Pick<
+      LineRecord,
+      | "dailyCap"
+      | "status"
+      | "warmupDay"
+      | "minGapSec"
+      | "reputationLabel"
+      | "registeredFcr"
+    >
   >,
 ): Promise<LineRecord | null> {
   return mutateStore((store) => {
@@ -601,7 +659,34 @@ export async function updateLine(
     if (patch.warmupDay != null) line.warmupDay = patch.warmupDay;
     if (patch.minGapSec != null) line.minGapSec = patch.minGapSec;
     if (patch.reputationLabel != null) line.reputationLabel = patch.reputationLabel;
+    if (patch.registeredFcr != null) line.registeredFcr = patch.registeredFcr;
     return { ...line };
+  });
+}
+
+export async function advanceLineWarmups(
+  now = new Date(),
+): Promise<{ advanced: number; lines: LineRecord[] }> {
+  return mutateStore((store) => {
+    const today = utcDateKey(now);
+    const lines: LineRecord[] = [];
+    for (const line of store.lines) {
+      if (line.status === "RETIRED" || line.lastWarmupAdvanceDate === today) {
+        continue;
+      }
+      line.warmupDay += 1;
+      line.lastWarmupAdvanceDate = today;
+      line.dailyCap = dailyCapForWarmupDay(line.warmupDay);
+      if (line.status !== "QUARANTINED") {
+        line.status = suggestLineStatus({
+          warmupDay: line.warmupDay,
+          targetCap: line.dailyCap,
+          reputation: line.reputationLabel,
+        });
+      }
+      lines.push({ ...line });
+    }
+    return { advanced: lines.length, lines };
   });
 }
 
@@ -735,6 +820,26 @@ export async function incrementOrgSends(now = new Date()): Promise<number> {
   });
 }
 
+export async function getContactAttemptsToday(
+  phoneE164: string,
+  now = new Date(),
+): Promise<number> {
+  const counts = (await readStoreUnlocked()).contactDailyCounts ?? {};
+  return counts[`${utcDateKey(now)}:${phoneE164}`] ?? 0;
+}
+
+export async function bumpContactAttempt(
+  phoneE164: string,
+  now = new Date(),
+): Promise<number> {
+  return mutateStore((store) => {
+    const counts = (store.contactDailyCounts ??= {});
+    const key = `${utcDateKey(now)}:${phoneE164}`;
+    counts[key] = (counts[key] ?? 0) + 1;
+    return counts[key]!;
+  });
+}
+
 export async function orgDailyCap(settings?: WorkspaceSettings): Promise<number> {
   return settings?.hardCapDailySends ?? HARD_CAP_DAILY_SENDS;
 }
@@ -746,6 +851,51 @@ export async function listClients() {
 export async function getClient(clientId: string): Promise<ClientRecord | null> {
   const client = (await readStoreUnlocked()).clients.find((c) => c.id === clientId);
   return client ?? null;
+}
+
+export async function isClientExcluded(
+  clientId: string | null | undefined,
+  phoneE164: string,
+): Promise<boolean> {
+  if (!clientId) return false;
+  return ((await readStoreUnlocked()).clientExclusions ?? []).some(
+    (exclusion) =>
+      exclusion.clientId === clientId && exclusion.phoneE164 === phoneE164,
+  );
+}
+
+export async function listClientExclusions(
+  clientId?: string,
+): Promise<ClientExclusion[]> {
+  const exclusions = (await readStoreUnlocked()).clientExclusions ?? [];
+  return clientId
+    ? exclusions.filter((exclusion) => exclusion.clientId === clientId)
+    : exclusions;
+}
+
+export async function addClientExclusion(input: {
+  clientId: string;
+  phoneE164: string;
+  reason?: string;
+}): Promise<ClientExclusion> {
+  return mutateStore((store) => {
+    const exclusions = (store.clientExclusions ??= []);
+    const existing = exclusions.find(
+      (exclusion) =>
+        exclusion.clientId === input.clientId &&
+        exclusion.phoneE164 === input.phoneE164,
+    );
+    if (existing) return existing;
+    const row: ClientExclusion = {
+      id: `exc_${randomUUID().slice(0, 8)}`,
+      clientId: input.clientId,
+      phoneE164: input.phoneE164,
+      reason: input.reason,
+      createdAt: new Date().toISOString(),
+    };
+    exclusions.push(row);
+    return row;
+  });
 }
 
 export async function createClient(
@@ -865,6 +1015,64 @@ export async function addInboxMessage(
     };
     store.inbox.push(row);
     return { message: row, created: true };
+  });
+}
+
+export async function listSeedNumbers(): Promise<SeedNumberRecord[]> {
+  return (await readStoreUnlocked()).seedNumbers ?? [];
+}
+
+export async function upsertSeedNumber(input: {
+  e164: string;
+  label?: string;
+  carrier?: string;
+  active?: boolean;
+}): Promise<SeedNumberRecord> {
+  return mutateStore((store) => {
+    const seeds = (store.seedNumbers ??= []);
+    const existing = seeds.find((seed) => seed.e164 === input.e164);
+    if (existing) {
+      if (input.label !== undefined) existing.label = input.label;
+      if (input.carrier !== undefined) existing.carrier = input.carrier;
+      if (input.active !== undefined) existing.active = input.active;
+      return existing;
+    }
+    const row: SeedNumberRecord = {
+      id: `seed_${randomUUID().slice(0, 8)}`,
+      e164: input.e164,
+      label: input.label,
+      carrier: input.carrier,
+      active: input.active ?? true,
+      createdAt: new Date().toISOString(),
+    };
+    seeds.push(row);
+    return row;
+  });
+}
+
+export async function markSeedDropped(
+  idOrE164: string,
+  at = new Date(),
+): Promise<SeedNumberRecord | null> {
+  return mutateStore((store) => {
+    const seed = (store.seedNumbers ?? []).find(
+      (item) => item.id === idOrE164 || item.e164 === idOrE164,
+    );
+    if (!seed) return null;
+    seed.lastDropAt = at.toISOString();
+    return seed;
+  });
+}
+
+export async function deleteSeedNumber(idOrE164: string): Promise<boolean> {
+  return mutateStore((store) => {
+    const seeds = (store.seedNumbers ??= []);
+    const index = seeds.findIndex(
+      (seed) => seed.id === idOrE164 || seed.e164 === idOrE164,
+    );
+    if (index < 0) return false;
+    seeds.splice(index, 1);
+    return true;
   });
 }
 

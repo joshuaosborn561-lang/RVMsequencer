@@ -357,11 +357,18 @@ export async function drainActiveCampaigns(
           const fromDid =
             lines.find((l) => l.id === result.lineId)?.e164 ??
             campaign.lineIds[0];
-          void import("@/lib/supabase/rvm-sync")
-            .then(({ upsertRvmDrop }) =>
-              upsertRvmDrop({
+          void Promise.all([
+            import("@/lib/supabase/rvm-sync"),
+            import("@/lib/store/db"),
+          ])
+            .then(async ([{ upsertRvmDrop }, { listClients }]) => {
+              const clients = await listClients();
+              const client = clients.find((c) => c.id === campaign.clientId);
+              return upsertRvmDrop({
                 campaign_id: campaign.id,
                 campaign_name: campaign.name,
+                client_id: campaign.clientId,
+                client_name: client?.name,
                 lead_id: lead.id,
                 lead_phone: lead.phoneE164,
                 from_did: fromDid,
@@ -372,8 +379,8 @@ export async function drainActiveCampaigns(
                 dial_status: "Pending",
                 app_lead_status: "SENT",
                 raw: { drain: true },
-              }),
-            )
+              });
+            })
             .catch((err) => console.error("[supabase] upsertRvmDrop failed", err));
         } else if (result.status === "SKIPPED") {
           campaignSkipped += 1;

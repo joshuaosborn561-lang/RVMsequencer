@@ -1,6 +1,6 @@
 /**
- * Sync RVM drops + callbacks to Supabase (campaignintelligence).
- * Tables: public.rvm_drops, public.rvm_callbacks
+ * Sync RVM drops + callbacks to Supabase Campaign Intelligence
+ * (same project as Smartlead/maps data — isolated tables only: rvm_drops, rvm_callbacks).
  */
 function supabaseConfig(): { url: string; key: string } | null {
   const url = process.env.SUPABASE_URL?.trim();
@@ -40,6 +40,8 @@ async function sbFetch(
 export type RvmDropRow = {
   campaign_id?: string;
   campaign_name?: string;
+  client_id?: string;
+  client_name?: string;
   lead_id?: string;
   lead_phone: string;
   from_did?: string;
@@ -94,6 +96,9 @@ export type RvmCallbackRow = {
   category?: string;
   body?: string;
   related_drop_id?: string;
+  client_id?: string;
+  client_name?: string;
+  campaign_id?: string;
   raw?: Record<string, unknown>;
 };
 

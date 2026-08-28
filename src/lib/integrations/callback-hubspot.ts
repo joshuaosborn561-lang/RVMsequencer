@@ -105,12 +105,16 @@ export async function resolveOwnerFromDid(didE164: string): Promise<{
   if (!line) return {};
 
   const campaigns = await listCampaigns();
-  const campaign = campaigns.find(
+  // Prefer ACTIVE campaign that owns this DID; fall back to any non-archived.
+  const owned = campaigns.filter(
     (c) =>
-      c.lineIds.includes(line.id) &&
-      c.status !== "ARCHIVED" &&
-      Boolean(c.clientId),
+      (c.lineIds.includes(line.id) || c.lineIds.includes(line.e164)) &&
+      c.status !== "ARCHIVED",
   );
+  const campaign =
+    owned.find((c) => c.status === "ACTIVE") ??
+    owned.find((c) => Boolean(c.clientId)) ??
+    owned[0];
   return {
     lineId: line.id,
     campaignId: campaign?.id,

@@ -145,8 +145,11 @@ export async function POST(req: Request) {
     }
 
     void import("@/lib/supabase/rvm-sync")
-      .then(({ insertRvmCallback }) =>
-        insertRvmCallback({
+      .then(async ({ insertRvmCallback }) => {
+        const { listClients } = await import("@/lib/store/db");
+        const clients = await listClients();
+        const client = clients.find((c) => c.id === owner.clientId);
+        return insertRvmCallback({
           call_sid: callSid || undefined,
           from_phone: from,
           to_did: to,
@@ -154,9 +157,12 @@ export async function POST(req: Request) {
           channel: "VOICE_CALLBACK",
           category: "CALLBACK",
           body: note,
+          client_id: owner.clientId,
+          client_name: client?.name,
+          campaign_id: owner.campaignId,
           raw: { params },
-        }),
-      )
+        });
+      })
       .catch((err) => console.error("[supabase] insertRvmCallback failed", err));
 
     return new NextResponse(

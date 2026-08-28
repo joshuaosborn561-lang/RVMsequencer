@@ -191,15 +191,15 @@ const burned = evaluateLineHealth({
 });
 assert.equal(burned.action, "quarantine");
 
-// Drop Cowboy + static recording reuse stays under $100 at 2k @ ~$0.025
-const dropcowboy = estimateRun({
+// Slybroadcast monthly 2k + static recording reuse = $100 flat
+const slybroadcast = estimateRun({
   drops: 2000,
-  delivery: DELIVERY_SCENARIOS.find((d) => d.id === "dropcowboy_platform")!,
+  delivery: DELIVERY_SCENARIOS.find((d) => d.id === "slybroadcast_2k_monthly")!,
   tts: TTS_SCENARIOS.find((t) => t.id === "static_reuse")!,
   personalizedFraction: 0,
 });
-assert.equal(dropcowboy.under100, true);
-assert.equal(dropcowboy.totalUsd, 50);
+assert.equal(slybroadcast.under100, true);
+assert.equal(slybroadcast.totalUsd, 100);
 
 // Legacy Drop.co Simple still models $100 for 2k
 const dropco = estimateRun({
@@ -440,7 +440,6 @@ async function main() {
       id: "c1",
       scriptTemplate: "Hey {{first_name}}",
       audioUrl: "https://example.com/a.mp3",
-      recordingId: "rec_test",
       schedule: {
         sendWindowStart: 0,
         sendWindowEnd: 24,
@@ -475,7 +474,7 @@ async function main() {
     campaign: {
       id: "c1",
       scriptTemplate: "Hey {{first_name}}",
-      recordingId: "rec_test",
+      audioUrl: "https://example.com/a.mp3",
       schedule: {
         sendWindowStart: 9,
         sendWindowEnd: 20,
@@ -509,7 +508,7 @@ async function main() {
     campaign: {
       id: "c1",
       scriptTemplate: "Hey",
-      recordingId: "rec_test",
+      audioUrl: "https://example.com/a.mp3",
       schedule: {
         sendWindowStart: 0,
         sendWindowEnd: 24,

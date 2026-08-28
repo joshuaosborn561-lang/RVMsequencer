@@ -22,10 +22,8 @@ export type DeliveryResult = z.infer<typeof DeliveryResultSchema>;
 export type SendRvmInput = {
   toE164: string;
   fromE164: string;
-  /** Hosted audio URL — Drop Cowboy needs account approval / BYOC for audio_url */
+  /** Hosted audio URL (Slybroadcast c_url) */
   audioUrl?: string;
-  /** Drop Cowboy dashboard recording GUID (preferred) */
-  recordingId?: string;
   foreignId: string;
   callbackUrl?: string;
   /** Contact postal code for TCPA window accuracy */
@@ -38,7 +36,6 @@ export type SendRvmInput = {
 export type RvmDeliveryProvider = {
   id:
     | "VOICEDROP"
-    | "DROP_COWBOY"
     | "DROP_CO"
     | "SLYBROADCAST"
     | "LEADSRAIN"

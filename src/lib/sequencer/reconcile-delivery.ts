@@ -12,7 +12,7 @@ import {
 import type { ScheduledSendRecord } from "@/lib/store/scheduled-types";
 
 export type ProviderDeliveryEvent = {
-  provider: "DROP_COWBOY" | "DROP_CO" | "TWILIO" | "SLYBROADCAST" | "UNKNOWN";
+  provider: "DROP_CO" | "TWILIO" | "SLYBROADCAST" | "UNKNOWN";
   providerMessageId?: string;
   foreignId?: string;
   status:

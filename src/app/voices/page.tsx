@@ -13,12 +13,6 @@ const items = [
     kind: "Your burners",
     note: "Line picker rotates / sticks DIDs. Each send passes the chosen number as Slybroadcast c_callerID so callbacks hit Master Inbox.",
   },
-  {
-    name: "Drop Cowboy recording",
-    provider: "DROP_COWBOY",
-    kind: "Optional alt",
-    note: "Only if RVM_PROVIDER=dropcowboy. Retail Drop Cowboy cannot use your Twilio DIDs as CID without BYOC.",
-  },
 ];
 
 export default function VoicesPage() {
@@ -27,7 +21,7 @@ export default function VoicesPage() {
       title="Voices"
       subtitle="Default delivery is Slybroadcast — host audio once, reuse the URL."
     >
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2">
         {items.map((v) => (
           <article key={v.name} className="panel rounded-xl p-5">
             <p className="badge badge-muted">{v.provider}</p>

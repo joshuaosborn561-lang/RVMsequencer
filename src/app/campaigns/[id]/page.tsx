@@ -582,22 +582,16 @@ function SequenceTab({
   const [audioUrl, setAudioUrl] = useState(
     campaign.audioUrl ?? step?.audioUrl ?? "",
   );
-  const [recordingId, setRecordingId] = useState(
-    campaign.dropCowboyRecordingId ?? step?.recordingId ?? "",
-  );
 
   useEffect(() => {
     setScript(step?.scriptTemplate ?? "");
     setDelay(String(step?.delayDays ?? 0));
     setAudioUrl(campaign.audioUrl ?? step?.audioUrl ?? "");
-    setRecordingId(campaign.dropCowboyRecordingId ?? step?.recordingId ?? "");
   }, [
     step?.scriptTemplate,
     step?.delayDays,
     step?.audioUrl,
-    step?.recordingId,
     campaign.audioUrl,
-    campaign.dropCowboyRecordingId,
   ]);
 
   return (
@@ -634,14 +628,6 @@ function SequenceTab({
             placeholder="https://…/message.mp3"
           />
         </Field>
-        <Field label="Drop Cowboy recording id (only if RVM_PROVIDER=dropcowboy)">
-          <input
-            className={inputClass}
-            value={recordingId}
-            onChange={(e) => setRecordingId(e.target.value)}
-            placeholder="Optional recording GUID"
-          />
-        </Field>
         <Field label="Delay before send (days)">
           <input
             className={inputClass}
@@ -656,14 +642,12 @@ function SequenceTab({
             onClick={() =>
               void onSave({
                 audioUrl: audioUrl || undefined,
-                dropCowboyRecordingId: recordingId || undefined,
                 steps: [
                   {
                     id: step?.id ?? "step_1",
                     position: 1,
                     delayDays: Number(delay) || 0,
                     scriptTemplate: script,
-                    recordingId: recordingId || undefined,
                     audioUrl: audioUrl || undefined,
                   },
                   ...campaign.steps.filter((s) => s.position !== 1),
@@ -1060,10 +1044,7 @@ function LaunchTab({
   ).length;
   const hasLines = campaign.lineIds.length > 0;
   const hasAudio = Boolean(
-    campaign.audioUrl ||
-      campaign.steps[0]?.audioUrl ||
-      campaign.dropCowboyRecordingId ||
-      campaign.steps[0]?.recordingId,
+    campaign.audioUrl || campaign.steps[0]?.audioUrl,
   );
   const canStart =
     sendable.length > 0 && hasLines && hasAudio && campaign.schedule.sendDays.length > 0;

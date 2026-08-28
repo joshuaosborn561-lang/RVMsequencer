@@ -3,9 +3,9 @@
  * Numbers are approximate — re-verify before budgeting.
  *
  * Preference order for RVM Drop:
- * 1. Drop Cowboy — default delivery (`/v1/rvm`, recording_id)
- * 2. Slybroadcast PAYG — never-expire credits + c_callerID
- * 3. LeadsRain / legacy alts
+ * 1. Slybroadcast — default delivery (`c_url` + `c_callerID`)
+ * 2. Drop.co / LeadsRain — alternate PAYG APIs
+ * 3. Twilio AMD — not true RVM
  */
 
 export type CostScenario = {
@@ -63,14 +63,6 @@ export const DELIVERY_SCENARIOS: CostScenario[] = [
     label: "VoiceDrop static (Budget utilization)",
     perDropUsd: 0.095,
     notes: "$95/mo / ~1000 static drops at full use — pricier than Sly/Drop.co for static.",
-    includesAiVoice: false,
-    hasApi: true,
-  },
-  {
-    id: "dropcowboy_platform",
-    label: "Drop Cowboy (typical platform path)",
-    perDropUsd: 0.025,
-    notes: "Entry plans ~$125/mo + overage/compliance fees. BYOC can go lower at scale — overkill if you only need an API.",
     includesAiVoice: false,
     hasApi: true,
   },

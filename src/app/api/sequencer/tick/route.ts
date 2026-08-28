@@ -43,7 +43,6 @@ const SingleBody = z.object({
   campaign: z.object({
     id: z.string(),
     scriptTemplate: z.string(),
-    recordingId: z.string().optional().nullable(),
     audioUrl: z.string().url().optional().nullable(),
     schedule: z.object({
       sendWindowStart: z.number().int().min(0).max(23),
@@ -145,7 +144,7 @@ export async function POST(req: Request) {
     lines,
     stickyLineId,
     dncScrubbers: getDncScrubbers(internalBlocked ?? []),
-    delivery: getDefaultDelivery({ recordingId: campaign.recordingId }),
+    delivery: getDefaultDelivery(),
     isSuppressed: (phone) => isSuppressed(phone),
   });
 

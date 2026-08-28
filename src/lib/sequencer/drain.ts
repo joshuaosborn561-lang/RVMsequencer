@@ -300,10 +300,6 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
           campaign: {
             id: campaign.id,
             scriptTemplate: step.scriptTemplate,
-            recordingId:
-              step.recordingId ??
-              campaign.dropCowboyRecordingId ??
-              process.env.DROPCOWBOY_RECORDING_ID,
             audioUrl: step.audioUrl ?? campaign.audioUrl,
             schedule: {
               sendWindowStart: campaign.schedule.sendWindowStart,
@@ -315,9 +311,7 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
           lines: pickable,
           stickyLineId: sch.stickyLineId ?? lead.stickyLineId,
           dncScrubbers: getDncScrubbers(),
-          delivery: getDefaultDelivery({
-            recordingId: step.recordingId ?? campaign.dropCowboyRecordingId,
-          }),
+          delivery: getDefaultDelivery(),
           now,
           isSuppressed: (phone) => isSuppressed(phone),
           callbackUrl: statusWebhook,
@@ -415,10 +409,7 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
           out.failed += 1;
           const err = result.error;
           if (
-            /NOT_CONFIGURED|UNAUTHORIZED|401|403|SLYBROADCAST|DROPCOWBOY|DROP_COWBOY/i.test(
-              err,
-            ) ||
-            err === "No Drop Cowboy recording_id (or audio URL) configured" ||
+            /NOT_CONFIGURED|UNAUTHORIZED|401|403|SLYBROADCAST/i.test(err) ||
             err === "No audio URL configured for Slybroadcast"
           ) {
             hardProviderFail = true;

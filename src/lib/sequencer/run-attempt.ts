@@ -12,7 +12,7 @@ export type AttemptLead = {
   lastName?: string | null;
   company?: string | null;
   timezone?: string | null;
-  /** Optional zip for Drop Cowboy postal_code / TCPA accuracy */
+  /** Optional zip for TCPA / local-window accuracy */
   postalCode?: string | null;
   consentStatus: ConsentStatus;
   dnc: boolean;
@@ -21,9 +21,7 @@ export type AttemptCampaign = {
   id: string;
   schedule: SendSchedule;
   scriptTemplate: string;
-  /** Drop Cowboy recording GUID (preferred) */
-  recordingId?: string | null;
-  /** Hosted audio URL if account allows audio_url */
+  /** Hosted audio URL for Slybroadcast c_url */
   audioUrl?: string | null;
 };
 
@@ -33,7 +31,6 @@ export type RunAttemptResult =
       lineId: string;
       providerMessageId?: string;
       audioUrl?: string;
-      recordingId?: string;
       timezone: string;
       costEstimateUsd?: number;
       /** Immediate provider outcome (unlocks next touch when delivered|sent). */
@@ -64,7 +61,7 @@ export type RunAttemptResult =
 
 /**
  * One sequencer tick for a single enrollment:
- * suppress → DNC scrub → local-time send window → line pick → Drop Cowboy send.
+ * suppress → DNC scrub → local-time send window → line pick → Slybroadcast send.
  */
 export async function runAttempt(input: {
   lead: AttemptLead;
@@ -123,7 +120,7 @@ export async function runAttempt(input: {
     };
   }
 
-  // 3) Line pool — used as Drop Cowboy forwarding_number (or BYOC caller_id)
+  // 3) Line pool — Twilio DID used as Slybroadcast c_callerID
   const line = pickLine(input.lines, input.lead.phoneE164, {
     now: input.now,
     stickyLineId: input.stickyLineId,
@@ -132,23 +129,18 @@ export async function runAttempt(input: {
     return { status: "SKIPPED", reason: "NO_LINE_CAPACITY" };
   }
 
-  const recordingId = input.campaign.recordingId?.trim() || undefined;
   const audioUrl = input.campaign.audioUrl?.trim() || undefined;
-  if (!recordingId && !audioUrl) {
+  if (!audioUrl) {
     return {
       status: "FAILED",
-      error:
-        process.env.RVM_PROVIDER?.toLowerCase().includes("drop")
-          ? "No Drop Cowboy recording_id (or audio URL) configured"
-          : "No audio URL configured for Slybroadcast",
+      error: "No audio URL configured for Slybroadcast",
     };
   }
 
-  // 4) Deliver via Drop Cowboy (or injected provider)
+  // 4) Deliver via Slybroadcast (or injected provider)
   const sent = await input.delivery.send({
     toE164: input.lead.phoneE164,
     fromE164: line.e164,
-    recordingId,
     audioUrl,
     postalCode: input.lead.postalCode?.trim() || undefined,
     foreignId: input.foreignId ?? `${input.campaign.id}_${input.lead.id}`,
@@ -167,7 +159,6 @@ export async function runAttempt(input: {
     lineId: line.id,
     providerMessageId: sent.providerMessageId,
     audioUrl,
-    recordingId,
     timezone: window.timezone,
     costEstimateUsd: sent.costEstimateUsd,
     deliveryStatus: sent.status,

@@ -96,7 +96,6 @@ export const mcpTools: McpToolDef[] = [
           enum: ["DRAFT", "SCHEDULED", "ACTIVE", "PAUSED", "COMPLETED", "ARCHIVED"],
         },
         audioUrl: { type: "string", description: "Hosted WAV/MP3 URL for Slybroadcast" },
-        dropCowboyRecordingId: { type: "string" },
         lineIds: { type: "array", items: { type: "string" } },
         steps: { type: "array", items: { type: "object" } },
         schedule: { type: "object" },
@@ -395,7 +394,7 @@ export const mcpTools: McpToolDef[] = [
   {
     name: "delivery_status",
     description:
-      "Post a delivery status event into the attempt ledger (Drop Cowboy / Sly / normalized).",
+      "Post a delivery status event into the attempt ledger (Slybroadcast / normalized).",
     method: "POST",
     path: "/api/webhooks/rvm-status",
     body: true,
@@ -405,7 +404,7 @@ export const mcpTools: McpToolDef[] = [
       properties: {
         provider: {
           type: "string",
-          enum: ["SLYBROADCAST", "DROP_COWBOY", "DROP_CO", "TWILIO", "UNKNOWN"],
+          enum: ["SLYBROADCAST", "DROP_CO", "TWILIO", "UNKNOWN"],
         },
         providerMessageId: { type: "string" },
         drop_id: { type: "string" },

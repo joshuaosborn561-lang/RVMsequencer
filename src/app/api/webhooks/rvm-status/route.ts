@@ -7,11 +7,11 @@ import type { ProviderDeliveryEvent } from "@/lib/sequencer/reconcile-delivery";
  * Provider delivery status → attempt ledger.
  *
  * Accepts:
- * - Normalized body (our shape)
- * - Drop Cowboy native webhook ({ drop_id, foreign_id, status: success|failure, reason })
+ * - Normalized body (our shape; default provider SLYBROADCAST)
+ * - Legacy Drop Cowboy-shaped payloads ({ drop_id, foreign_id, status: success|failure })
+ *   still parsed for historical webhooks — not an active delivery path.
  *
  * Auth: Bearer / x-webhook-secret = RVM_STATUS_WEBHOOK_SECRET
- * (Drop Cowboy callback_url can include ?secret=… or use dashboard URL with secret header via bridge)
  */
 function authorize(req: Request): boolean {
   const secret = process.env.RVM_STATUS_WEBHOOK_SECRET;
@@ -35,7 +35,7 @@ const NormalizedStatus = z.enum([
   "human_answered",
 ]);
 
-function mapDropCowboyStatus(
+function mapLegacySuccessFailure(
   status: string,
   reason?: string,
 ): ProviderDeliveryEvent["status"] {
@@ -62,25 +62,25 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  // Drop Cowboy native shape
-  const isDropCowboy =
+  // Legacy success/failure shape (historical Drop Cowboy webhooks)
+  const isLegacySuccessFailure =
     ("drop_id" in raw || "foreign_id" in raw) &&
     typeof raw.status === "string" &&
     !NormalizedStatus.safeParse(raw.status).success;
 
   let event: ProviderDeliveryEvent;
 
-  if (isDropCowboy) {
+  if (isLegacySuccessFailure) {
     const status = String(raw.status);
     const reason =
       typeof raw.reason === "string" ? raw.reason : undefined;
     event = {
-      provider: "DROP_COWBOY",
+      provider: "UNKNOWN",
       providerMessageId:
         typeof raw.drop_id === "string" ? raw.drop_id : undefined,
       foreignId:
         typeof raw.foreign_id === "string" ? raw.foreign_id : undefined,
-      status: mapDropCowboyStatus(status, reason),
+      status: mapLegacySuccessFailure(status, reason),
       errorDetail: reason || undefined,
       raw,
     };
@@ -93,9 +93,9 @@ export async function POST(req: Request) {
   } else {
     const Body = z.object({
       provider: z
-        .enum(["DROP_COWBOY", "DROP_CO", "TWILIO", "SLYBROADCAST", "UNKNOWN"])
+        .enum(["DROP_CO", "TWILIO", "SLYBROADCAST", "UNKNOWN"])
         .optional()
-        .default("DROP_COWBOY"),
+        .default("SLYBROADCAST"),
       providerMessageId: z.string().optional(),
       ActivityToken: z.string().optional(),
       drop_id: z.string().optional(),

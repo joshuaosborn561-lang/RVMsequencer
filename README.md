@@ -2,7 +2,7 @@
 
 **Smartlead for ringless voicemail** — a sequencer that manages Twilio line pools, warmup/caps, campaigns, and burned-line detection.
 
-> Twilio alone cannot deposit true ringless voicemail. RVM Drop owns the control plane; deposit defaults to **Slybroadcast** (`c_url` + `c_callerID` = your Twilio DID). Optional Drop Cowboy via `RVM_PROVIDER=dropcowboy`. See [`docs/RESEARCH.md`](./docs/RESEARCH.md).
+> Twilio alone cannot deposit true ringless voicemail. RVM Drop owns the control plane; deposit defaults to **Slybroadcast** (`c_url` + `c_callerID` = your Twilio DID). See [`docs/RESEARCH.md`](./docs/RESEARCH.md).
 
 Deploy target: **Railway** project `RVM Drop` (HTTPS + Postgres + 5‑minute sequencer cron).
 
@@ -20,7 +20,7 @@ Tools like [Topa.io](https://topa.io) are excellent RVM channel bolt-ons (AI voi
 - Next.js App Router UI — Smartlead-style campaigns, CSV wizard, Master Inbox, per-client API keys
 - File store (`.data/`) until Postgres is linked; Prisma schema includes Client / ApiKey / Inbox
 - Pure TS engines: warmup, line picker, compliance, reputation, cost estimator, local send windows
-- Pluggable delivery (`MOCK`, **Slybroadcast**, Drop Cowboy, VoiceDrop, Twilio AMD, …)
+- Pluggable delivery (`MOCK`, **Slybroadcast**, VoiceDrop, Twilio AMD, …)
 - **MCP server** for Claude — [`mcp/`](./mcp/) (catalog must cover every API route)
 
 **Go live:** see [`docs/GO_LIVE.md`](./docs/GO_LIVE.md). **Claude MCP:** [`mcp/README.md`](./mcp/README.md).

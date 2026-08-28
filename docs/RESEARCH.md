@@ -12,11 +12,11 @@ To use Twilio numbers you buy as caller IDs for RVM, you need one of:
 
 | Approach | Ringless? | Who delivers | Notes |
 |---|---|---|---|
-| **RVM provider + BYOC Twilio** (e.g. Drop Cowboy BYOC) | Yes | Provider’s RVM stack, routed via your Twilio account/numbers | Best match for “I own a bunch of Twilio lines” |
+| **RVM provider + BYOC Twilio** (e.g. historical Drop Cowboy BYOC — deprecated/skip) | Yes | Provider’s RVM stack, routed via your Twilio account/numbers | Prefer Slybroadcast + your Twilio DIDs as CID instead |
 | **RVM provider standard delivery** (VoiceDrop, Slybroadcast, LeadsRain, Drop Co) | Yes | Provider’s carriers | Simpler ops; may not use *your* Twilio DIDs as CID |
 | **Twilio AMD voicemail drop** (`MachineDetection=DetectMessageEnd`) | **No** — phone rings | You / Twilio | TOS-compatible; hang up on human or leave message after beep; not true RVM |
 
-**Product implication:** Dropseq is the **sequencer + line reputation layer**. Delivery is a pluggable provider. Default architecture: Twilio for number inventory + optional AMD fallback; VoiceDrop / Drop Cowboy / Slybroadcast for true RVM.
+**Product implication:** Dropseq is the **sequencer + line reputation layer**. Delivery is a pluggable provider. Default architecture: Twilio for number inventory + optional AMD fallback; **Slybroadcast** (or VoiceDrop) for true RVM.
 
 ---
 
@@ -49,9 +49,9 @@ Operator posture in this project: treat RVM more like cold-call risk (grey / une
 
 ## 4. Cost model: 2,000 drops under $100
 
-### Market RVM delivery (static vs AI) — prefer API + cheap over Cowboy
+### Market RVM delivery (static vs AI) — prefer API + cheap
 
-Drop Cowboy is optional/overkill if you only need deposit + API. Cheaper documented APIs:
+Drop Cowboy is **deprecated / skip** for this product (not a supported path). Cheaper documented APIs:
 
 | Provider | Approx 2026 unit economics | 2,000 drops | API notes |
 |---|---|---|---|
@@ -60,7 +60,7 @@ Drop Cowboy is optional/overkill if you only need deposit + API. Cheaper documen
 | **LeadsRain** | ~**$0.015–$0.02** + ~$0.002 DNC scrub | **~$44** | API at leadsrain.com/apidocs (legacy). Credits expire ~90d. |
 | **Topa.io** | AI RVM ~**$0.025**/drop bundled | **~$50** | Webhooks/integrations; less Twilio-CID fleet control. |
 | **VoiceDrop** | Static cheaper at scale; AI units pricier | Often >$100 for AI | Modern REST; premium positioning. |
-| **Drop Cowboy** | Platform ~$125+ / BYOC wholesale claims | Higher TCO unless huge volume | Full suite; skip unless you need BYOC/dialer CRM. |
+| **Drop Cowboy** | _(deprecated — skip)_ | — | Removed from product; historical research only. |
 
 ### Twilio AMD path (not ringless)
 
@@ -85,7 +85,7 @@ Only regenerate when the script/voice changes. Full 1:1 per-lead TTS is optional
 
 1. **Deposit via Slybroadcast monthly 2k ($100 flat)** or Drop.co PAYG ($0.05 → $100) or LeadsRain (~$44 static).
 2. **Static or lightly templated audio** + Cartesia/ElevenLabs clone rendered once (or Part1/Part2 splice) so TTS ≠ budget killer.
-3. Skip Drop Cowboy unless you specifically need their BYOC/dialer stack.
+3. Skip Drop Cowboy (deprecated — not supported in RVM Drop).
 4. Full 1:1 AI personalization on VoiceDrop-style metering often **breaks** the $100 target.
 
 ### PAYG pick (user preference)
@@ -193,8 +193,8 @@ Topa today is closer to “RVM as a channel bolt-on to Instantly/Smartlead.” D
 ├──────────────────┬──────────────────────┬───────────────────┤
 │  Voice Engine    │  Delivery Adapters   │  Reputation       │
 │  Cartesia /      │  VoiceDrop           │  Voice Integrity  │
-│  ElevenLabs /    │  DropCowboy (BYOC)   │  Hiya (optional)  │
-│  Upload WAV      │  Slybroadcast        │  Webhook metrics  │
+│  ElevenLabs /    │  Slybroadcast        │  Hiya (optional)  │
+│  Upload WAV      │  VoiceDrop           │  Webhook metrics  │
 │                  │  Twilio AMD fallback │  Handset probes   │
 └──────────────────┴──────────────────────┴───────────────────┘
 ```
@@ -204,7 +204,7 @@ Topa today is closer to “RVM as a channel bolt-on to Instantly/Smartlead.” D
 1. Domain model + provider interfaces (this scaffold)
 2. Twilio line sync + warmup scheduler + daily caps
 3. Voice: stock + clone via Cartesia/ElevenLabs; audio asset store
-4. One RVM adapter (VoiceDrop **or** Drop Cowboy BYOC) + webhook ingest
+4. One RVM adapter (**Slybroadcast**) + webhook ingest
 5. Campaign sequencer (queue, timezone, rotation, stop conditions)
 6. Deliverability dashboard + quarantine automation
 7. AMD fallback mode for testing / markets without RVM
@@ -228,7 +228,7 @@ Wired APIs: `POST /api/scrub`, `GET /api/timezone`, `POST /api/voice/render`, `P
 - FCC 22-85 / FCC press DOC-389372A1 — RVM = TCPA call, consent required
 - Twilio docs: Answering Machine Detection, Voice pricing US, Voice Integrity
 - Voice.ai hub: Twilio does not support native RVM
-- Drop Cowboy: BYOC Twilio RVM explainers + developer API
+- Drop Cowboy: historical BYOC docs only (deprecated — skip for RVM Drop)
 - VoiceDrop: 2026 RVM cost comparison + API
 - Topa.io homepage + help center credit/billing articles
 - LineShield (2026): DID warmup schedules; LienSuite calling deliverability guide

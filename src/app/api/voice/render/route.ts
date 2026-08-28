@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 
 /**
- * ElevenLabs TTS was removed. Audio must be a Drop Cowboy recording_id
- * (or approved audio_url) set on the campaign.
+ * ElevenLabs TTS was removed. Host a WAV/MP3 and set campaign audioUrl
+ * for Slybroadcast c_url.
  */
 export async function POST() {
   return NextResponse.json(
     {
       error: "tts_removed",
-      hint: "Upload audio in Drop Cowboy → Recordings and set dropCowboyRecordingId on the campaign.",
+      hint: "Host a WAV/MP3 (≥5s) and set audioUrl on the campaign Sequence tab for Slybroadcast.",
     },
     { status: 410 },
   );

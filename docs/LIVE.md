@@ -28,10 +28,9 @@ Add Redis in Railway: **New → Database → Redis**, then variable reference `R
 | `DATA_DIR` | Yes | `/data` |
 | `CRON_SECRET` | Yes | Same value cron sends as `x-cron-secret` |
 | `NEXT_PUBLIC_APP_URL` | Yes | `https://rvm-drop-production.up.railway.app` |
-| `RVM_PROVIDER` | Optional | `slybroadcast` (default) \| `dropcowboy` \| `mock` |
+| `RVM_PROVIDER` | Optional | `slybroadcast` (default) \| `mock` |
 | `SLYBROADCAST_UID` | Yes (default provider) | Slybroadcast login email |
 | `SLYBROADCAST_PASSWORD` | Yes | Slybroadcast password |
-| `DROPCOWBOY_TEAM_ID` / `SECRET` / `BRAND_ID` | If `RVM_PROVIDER=dropcowboy` | Drop Cowboy API |
 | `DNC_PROJECT_API_TOKEN` | Recommended | External DNC scrub |
 | `TWILIO_ACCOUNT_SID` | Yes for inbound | Number inventory + webhooks |
 | `TWILIO_AUTH_TOKEN` | Yes for inbound | Signature validation |
@@ -53,7 +52,7 @@ Add Redis in Railway: **New → Database → Redis**, then variable reference `R
 
 ## 4. Provider status → ledger
 
-Point Slybroadcast `c_dispo_url` (or Drop Cowboy `callback_url`) at:
+Point Slybroadcast `c_dispo_url` at:
 
 `POST {APP}/api/webhooks/rvm-status?secret=$RVM_STATUS_WEBHOOK_SECRET`
 

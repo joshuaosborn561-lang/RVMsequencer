@@ -100,11 +100,10 @@ export const demoCampaigns = [
 
 export const warmupSchedule = buildWarmupSchedule();
 
-/** Prefer API-cheap providers in the overview table (skip Cowboy noise). */
+/** Prefer API-cheap providers in the overview table. */
 const OVERVIEW_DELIVERY_IDS = [
   "slybroadcast_payg_5k",
   "slybroadcast_2k_monthly",
-  "dropcowboy_platform",
   "leadsrain_static",
   "topa_ai",
 ];

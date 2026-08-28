@@ -16,7 +16,7 @@ Short answer: **API keys + Railway (HTTPS + Postgres + cron)**. Default deposit 
 | **Forward** | `CALL_FORWARD_TO_E164` | Dial after inbound | Voice says unavailable |
 | **App URL** | `NEXT_PUBLIC_APP_URL` | Webhooks | Local-only |
 
-Optional: `RVM_PROVIDER=dropcowboy` + Drop Cowboy keys (retail ≠ BYOC Twilio CID).  
+Optional: `RVM_PROVIDER=mock` for dry runs without Slybroadcast.  
 MCP: see [`mcp/README.md`](../mcp/README.md).
 
 ## 2. Infra

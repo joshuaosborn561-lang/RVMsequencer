@@ -48,6 +48,14 @@ const PatchBody = z
       })
       .optional(),
     audioUrl: z.string().optional(),
+    ramp: z
+      .object({
+        enabled: z.boolean(),
+        startPerDay: z.number().int().min(1).max(100_000),
+        incrementPerDay: z.number().int().min(0).max(100_000),
+        ceilingPerDay: z.number().int().min(1).max(100_000),
+      })
+      .optional(),
     /** @deprecated */
     dropCoCampaignToken: z.string().optional(),
     /** @deprecated */

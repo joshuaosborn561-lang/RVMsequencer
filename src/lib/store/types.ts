@@ -189,6 +189,42 @@ export type WorkspaceSettings = {
   lineMinGapSec?: number;
 };
 
+/** Saved defaults so Claude / skills can reuse setup across chats. */
+export type ClaudePreferences = {
+  defaultClientId?: string;
+  defaultLineIds?: string[];
+  defaultAudioUrl?: string;
+  defaultAudioAssetId?: string;
+  defaultNewLeadsPerDay?: number;
+  defaultHardCapDailySends?: number;
+  defaultLineDailyCap?: number;
+  defaultSchedule?: {
+    sendWindowStart?: number;
+    sendWindowEnd?: number;
+    sendDays?: number[];
+    timezoneMode?: "RECIPIENT_LOCAL" | "FIXED";
+    fixedTimezone?: string;
+    requireConsent?: boolean;
+    stopOnCallback?: boolean;
+    stopOnOptOut?: boolean;
+  };
+  lastCampaignId?: string;
+  notes?: string;
+};
+
+/** Hosted or uploaded voicemail audio reusable across campaigns. */
+export type AudioAsset = {
+  id: string;
+  name: string;
+  /** Public URL Slybroadcast can fetch (external or /api/audio/{id}/file). */
+  url: string;
+  contentType?: string;
+  /** Absolute path under DATA_DIR when uploaded locally (not exposed via API). */
+  localPath?: string;
+  source: "upload" | "url";
+  createdAt: string;
+};
+
 export type StoreShape = {
   clients: ClientRecord[];
   apiKeys: ApiKeyRecord[];
@@ -196,6 +232,8 @@ export type StoreShape = {
   leads: LeadRecord[];
   inbox: InboxMessage[];
   settings: WorkspaceSettings;
+  preferences: ClaudePreferences;
+  audioAssets: AudioAsset[];
   suppressions: SuppressionRecord[];
   attempts: AttemptRecord[];
   lines: LineRecord[];

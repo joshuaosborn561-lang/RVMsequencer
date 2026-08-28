@@ -81,7 +81,7 @@ export const mcpTools: McpToolDef[] = [
   {
     name: "campaigns_update",
     description:
-      "Patch campaign (sequence, lines, schedule, audioUrl, status). Set status=ACTIVE to launch.",
+      "Patch campaign (sequence, lines, schedule, ramp, audioUrl, status). Set status=ACTIVE to launch after leads+lines+audio are set. Then call sequencer_drain once to start sending immediately.",
     method: "PATCH",
     path: "/api/campaigns/{id}",
     pathParams: ["id"],
@@ -96,10 +96,59 @@ export const mcpTools: McpToolDef[] = [
           type: "string",
           enum: ["DRAFT", "SCHEDULED", "ACTIVE", "PAUSED", "COMPLETED", "ARCHIVED"],
         },
-        audioUrl: { type: "string", description: "Hosted WAV/MP3 URL for Slybroadcast" },
-        lineIds: { type: "array", items: { type: "string" } },
-        steps: { type: "array", items: { type: "object" } },
-        schedule: { type: "object" },
+        audioUrl: {
+          type: "string",
+          description: "Hosted WAV/MP3/M4A URL for Slybroadcast (from audio_upload or external host)",
+        },
+        lineIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "Line ids or E.164 DIDs to use as c_callerID",
+        },
+        steps: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["id", "position", "delayDays", "scriptTemplate"],
+            properties: {
+              id: { type: "string" },
+              position: { type: "integer" },
+              delayDays: { type: "integer", description: "Days after prior step (0 = day 0)" },
+              scriptTemplate: { type: "string" },
+              audioUrl: { type: "string" },
+            },
+          },
+        },
+        schedule: {
+          type: "object",
+          properties: {
+            sendWindowStart: { type: "integer", description: "Local hour 0–23" },
+            sendWindowEnd: { type: "integer", description: "Local hour 1–24" },
+            sendDays: {
+              type: "array",
+              items: { type: "integer" },
+              description: "0=Sun … 6=Sat (default Mon–Fri 1–5)",
+            },
+            timezoneMode: { type: "string", enum: ["RECIPIENT_LOCAL", "FIXED"] },
+            fixedTimezone: { type: "string" },
+            newLeadsPerDay: {
+              type: "integer",
+              description: "Max NEW leads to start per UTC day (ask user)",
+            },
+            requireConsent: { type: "boolean" },
+            stopOnCallback: { type: "boolean" },
+            stopOnOptOut: { type: "boolean" },
+          },
+        },
+        ramp: {
+          type: "object",
+          properties: {
+            enabled: { type: "boolean" },
+            startPerDay: { type: "integer" },
+            incrementPerDay: { type: "integer" },
+            ceilingPerDay: { type: "integer" },
+          },
+        },
       },
     },
     covers: ["src/app/api/campaigns/[id]/route.ts"],
@@ -117,7 +166,7 @@ export const mcpTools: McpToolDef[] = [
       properties: {
         id: { type: "string" },
         leadId: { type: "string" },
-        phone: { type: "string" },
+        stepPosition: { type: "integer", description: "1-based sequence step" },
       },
     },
     covers: ["src/app/api/campaigns/[id]/preview/route.ts"],
@@ -317,7 +366,7 @@ export const mcpTools: McpToolDef[] = [
   },
   {
     name: "lines_ensure",
-    description: "Add/ensure a Twilio DID in the line pool.",
+    description: "Add/ensure a Twilio DID in the line pool (default dailyCap 80).",
     method: "POST",
     path: "/api/lines",
     body: true,
@@ -329,6 +378,104 @@ export const mcpTools: McpToolDef[] = [
       },
     },
     covers: ["src/app/api/lines/route.ts"],
+  },
+  {
+    name: "lines_update",
+    description:
+      "Update a line's dailyCap, status, warmupDay, or minGapSec. Ask the user how many drops/day per DID.",
+    method: "PATCH",
+    path: "/api/lines",
+    body: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        e164: { type: "string" },
+        dailyCap: { type: "integer", description: "Max deposits/day on this DID" },
+        status: {
+          type: "string",
+          enum: ["PROVISIONING", "WARMING", "HEALTHY", "DEGRADED", "QUARANTINED", "RETIRED"],
+        },
+        warmupDay: { type: "integer" },
+        minGapSec: { type: "integer", description: "Min seconds between deposits on this DID" },
+      },
+    },
+    covers: ["src/app/api/lines/route.ts"],
+  },
+  {
+    name: "audio_list",
+    description:
+      "List saved voicemail audio assets. Offer these when the user can reuse a prior recording.",
+    method: "GET",
+    path: "/api/audio",
+    inputSchema: { type: "object", properties: {} },
+    covers: ["src/app/api/audio/route.ts"],
+  },
+  {
+    name: "audio_upload",
+    description:
+      "Save voicemail audio: pass url (already hosted) OR base64 (user recorded/uploaded file). Returns public url to set on campaign.audioUrl.",
+    method: "POST",
+    path: "/api/audio",
+    body: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Label e.g. 'Q1 intro RVM'" },
+        url: { type: "string", description: "Existing public WAV/MP3/M4A URL" },
+        base64: {
+          type: "string",
+          description: "Raw base64 or data:audio/...;base64,... from user file",
+        },
+        contentType: { type: "string", description: "audio/wav | audio/mpeg | audio/mp4" },
+      },
+    },
+    covers: ["src/app/api/audio/route.ts", "src/app/api/audio/[id]/file/route.ts"],
+  },
+  {
+    name: "preferences_get",
+    description:
+      "Load saved Claude defaults (lines, audio, schedule, caps). Call first in a new chat to skip re-asking.",
+    method: "GET",
+    path: "/api/preferences",
+    inputSchema: { type: "object", properties: {} },
+    covers: ["src/app/api/preferences/route.ts"],
+  },
+  {
+    name: "preferences_update",
+    description:
+      "Save defaults after a successful setup so the next Claude session can reuse them (skill memory).",
+    method: "PATCH",
+    path: "/api/preferences",
+    body: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        defaultClientId: { type: "string" },
+        defaultLineIds: { type: "array", items: { type: "string" } },
+        defaultAudioUrl: { type: "string" },
+        defaultAudioAssetId: { type: "string" },
+        defaultNewLeadsPerDay: { type: "integer" },
+        defaultHardCapDailySends: { type: "integer" },
+        defaultLineDailyCap: { type: "integer" },
+        defaultSchedule: {
+          type: "object",
+          properties: {
+            sendWindowStart: { type: "integer" },
+            sendWindowEnd: { type: "integer" },
+            sendDays: { type: "array", items: { type: "integer" } },
+            timezoneMode: { type: "string", enum: ["RECIPIENT_LOCAL", "FIXED"] },
+            fixedTimezone: { type: "string" },
+            requireConsent: { type: "boolean" },
+            stopOnCallback: { type: "boolean" },
+            stopOnOptOut: { type: "boolean" },
+          },
+        },
+        lastCampaignId: { type: "string" },
+        notes: { type: "string" },
+      },
+    },
+    covers: ["src/app/api/preferences/route.ts"],
   },
   {
     name: "suppress_phone",
@@ -359,6 +506,7 @@ export const mcpTools: McpToolDef[] = [
       required: ["numbers"],
       properties: {
         numbers: { type: "array", items: { type: "string" } },
+        internalBlocked: { type: "array", items: { type: "string" } },
       },
     },
     covers: ["src/app/api/scrub/route.ts"],

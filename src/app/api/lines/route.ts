@@ -1,19 +1,19 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { toE164 } from "@/lib/phone";
-import { ensureLine, listLines } from "@/lib/store/db";
+import { ensureLine, listLines, updateLine } from "@/lib/store/db";
 
 export async function GET() {
   const lines = await listLines();
   return NextResponse.json({ lines });
 }
 
-const Body = z.object({
+const PostBody = z.object({
   e164: z.string().min(7),
 });
 
 export async function POST(req: Request) {
-  const parsed = Body.safeParse(await req.json());
+  const parsed = PostBody.safeParse(await req.json());
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
@@ -26,4 +26,44 @@ export async function POST(req: Request) {
   }
   const line = await ensureLine(e164);
   return NextResponse.json({ line }, { status: 201 });
+}
+
+const PatchBody = z.object({
+  id: z.string().optional(),
+  e164: z.string().optional(),
+  dailyCap: z.number().int().min(0).max(10_000).optional(),
+  status: z
+    .enum(["PROVISIONING", "WARMING", "HEALTHY", "DEGRADED", "QUARANTINED", "RETIRED"])
+    .optional(),
+  warmupDay: z.number().int().min(0).max(90).optional(),
+  minGapSec: z.number().int().min(0).max(86_400).optional(),
+  reputationLabel: z
+    .enum(["UNFLAGGED", "MIXED_LOW", "MIXED_HIGH", "FLAGGED", "UNKNOWN"])
+    .optional(),
+});
+
+/** Update per-DID daily cap / status (Claude walkthrough uses this). */
+export async function PATCH(req: Request) {
+  const parsed = PatchBody.safeParse(await req.json());
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  }
+  const key = parsed.data.id || parsed.data.e164;
+  if (!key) {
+    return NextResponse.json(
+      { error: "id_or_e164_required" },
+      { status: 400 },
+    );
+  }
+  const line = await updateLine(key, {
+    dailyCap: parsed.data.dailyCap,
+    status: parsed.data.status,
+    warmupDay: parsed.data.warmupDay,
+    minGapSec: parsed.data.minGapSec,
+    reputationLabel: parsed.data.reputationLabel,
+  });
+  if (!line) {
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+  return NextResponse.json({ line });
 }

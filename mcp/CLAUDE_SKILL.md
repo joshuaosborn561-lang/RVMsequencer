@@ -1,0 +1,63 @@
+# RVM Drop — Claude guided campaign skill
+
+Use the **rvm-drop** MCP connector (`https://rvm-drop-production.up.railway.app/api/mcp`).
+Walk the user through a full ringless-voicemail campaign. Be conversational. One question at a time when choices matter. Confirm before launching.
+
+## Always start
+
+1. Call `preferences_get` and `settings_get` and `lines_list` and `audio_list`.
+2. If preferences exist, say: “I can reuse your last setup (lines / audio / daily caps). Want that, or start fresh?”
+3. Call `health` if anything fails.
+
+## Conversation order
+
+### 1) Campaign + leads
+- Ask for a campaign name (or invent one from context).
+- `campaigns_create` `{ name, clientId? }` — use `defaultClientId` from preferences when present.
+- Ask for phone numbers (paste list or CSV).
+- `leads_import` `{ id, mode: "append", leads: [{ phone, firstName?, ... }] }` (or `csv` + `mapping`).
+- Optionally `scrub_phones` first if they want a dry scrub.
+
+### 2) Voicemail audio
+Ask: **“Reuse a saved recording, give me a public URL, or upload a new file?”**
+- Reuse → show `audio_list`, then set that `url`.
+- URL → `audio_upload` `{ name, url }`.
+- New recording → ask them to attach/upload WAV/MP3/M4A; call `audio_upload` `{ name, base64, contentType }`.
+- Put the returned `asset.url` on the campaign via `campaigns_update` `{ id, audioUrl }`.
+
+### 3) Caller ID lines (Twilio DIDs)
+- Show `lines_list` (e164, dailyCap, sentToday, status).
+- Ask which numbers to use; `lines_ensure` for any new DIDs they provide.
+- Ask **how many voicemails per day per line**; `lines_update` `{ e164|id, dailyCap }`.
+- `campaigns_update` `{ id, lineIds: [...] }` (ids or E.164).
+
+### 4) Volume & schedule walkthrough
+Ask one by one (offer defaults from preferences):
+- New leads / day → `schedule.newLeadsPerDay` (default 200 or prefs)
+- Send window hours → `sendWindowStart` / `sendWindowEnd` (default 9–20)
+- Days → `sendDays` (default Mon–Fri `[1,2,3,4,5]`)
+- Timezone → `RECIPIENT_LOCAL` unless they want FIXED
+- Org hard cap → `settings_update` `{ hardCapDailySends }`
+- Optional ramp → `ramp: { enabled, startPerDay, incrementPerDay, ceilingPerDay }`
+- Call forward for callbacks → `settings_update` `{ callForwardToE164 }`
+
+Then `campaigns_update` with `schedule` (+ `ramp` if used) and confirm the summary.
+
+### 5) Launch
+- Recap: lead count, audio, lines + caps, daily volume, window.
+- On confirm: `campaigns_update` `{ id, status: "ACTIVE" }`.
+- Immediately `sequencer_drain` `{ drain: true }` so sending starts without waiting for cron.
+- `preferences_update` with the choices they just made (`defaultLineIds`, `defaultAudioUrl`, `defaultNewLeadsPerDay`, `defaultSchedule`, `lastCampaignId`, etc.).
+
+### 6) After launch
+- They can ask status anytime: `campaigns_get`, `inbox_list`.
+- Pause: `campaigns_update` `{ status: "PAUSED" }`.
+- Suppress / DNC: `suppress_phone`.
+
+## Launch blockers (fix user clearly)
+Need all of: sendable leads, ≥1 line, audioUrl, sendDays. API returns `launch_blocked` with `blockers`.
+
+## Do not
+- Invent Twilio numbers not in the pool / provided by the user.
+- Launch without an explicit “yes”.
+- Claim TTS exists (removed) — audio must be a real file/URL.

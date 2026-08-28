@@ -12,7 +12,9 @@ import { withStoreLock } from "./lock";
 import type {
   ApiKeyRecord,
   AttemptRecord,
+  AudioAsset,
   CampaignRecord,
+  ClaudePreferences,
   ClientRecord,
   InboxMessage,
   LeadRecord,
@@ -25,6 +27,7 @@ import { STALE_SENDING_MS } from "./types";
 
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), ".data");
 const STORE_PATH = path.join(DATA_DIR, "store.json");
+const AUDIO_DIR = path.join(DATA_DIR, "audio");
 
 function hashKey(secret: string): string {
   return createHash("sha256").update(secret).digest("hex");
@@ -62,6 +65,8 @@ const defaultStore = (): StoreShape => ({
   leads: [],
   inbox: [],
   settings: { callForwardTimeoutSec: 30 },
+  preferences: {},
+  audioAssets: [],
   suppressions: [],
   attempts: [],
   lines: seedLines(),
@@ -100,6 +105,8 @@ async function readStoreUnlocked(): Promise<StoreShape> {
       ...base,
       ...parsed,
       settings: { ...base.settings, ...parsed.settings },
+      preferences: { ...base.preferences, ...(parsed.preferences ?? {}) },
+      audioAssets: parsed.audioAssets ?? base.audioAssets,
       clients: parsed.clients ?? base.clients,
       apiKeys,
       campaigns: parsed.campaigns ?? base.campaigns,
@@ -569,6 +576,134 @@ export async function ensureLine(e164: string): Promise<LineRecord> {
     };
     store.lines.push(row);
     return row;
+  });
+}
+
+export async function updateLine(
+  idOrE164: string,
+  patch: Partial<
+    Pick<LineRecord, "dailyCap" | "status" | "warmupDay" | "minGapSec" | "reputationLabel">
+  >,
+): Promise<LineRecord | null> {
+  return mutateStore((store) => {
+    const line = store.lines.find((l) => l.id === idOrE164 || l.e164 === idOrE164);
+    if (!line) return null;
+    if (patch.dailyCap != null) line.dailyCap = patch.dailyCap;
+    if (patch.status != null) line.status = patch.status;
+    if (patch.warmupDay != null) line.warmupDay = patch.warmupDay;
+    if (patch.minGapSec != null) line.minGapSec = patch.minGapSec;
+    if (patch.reputationLabel != null) line.reputationLabel = patch.reputationLabel;
+    return { ...line };
+  });
+}
+
+export async function getPreferences(): Promise<ClaudePreferences> {
+  return (await readStoreUnlocked()).preferences ?? {};
+}
+
+export async function updatePreferences(
+  patch: ClaudePreferences,
+): Promise<ClaudePreferences> {
+  return mutateStore((store) => {
+    store.preferences = { ...store.preferences, ...patch };
+    // Allow clearing optional string fields with empty string → delete
+    for (const key of Object.keys(patch) as (keyof ClaudePreferences)[]) {
+      const v = patch[key];
+      if (v === "" || v === null) {
+        delete store.preferences[key];
+      }
+    }
+    return store.preferences;
+  });
+}
+
+function publicAppUrl(): string {
+  const u =
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    (process.env.RAILWAY_PUBLIC_DOMAIN
+      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+      : "") ||
+    "http://127.0.0.1:3000";
+  return u.replace(/\/$/, "");
+}
+
+export async function listAudioAssets(): Promise<AudioAsset[]> {
+  const assets = (await readStoreUnlocked()).audioAssets ?? [];
+  return assets.map(({ localPath: _lp, ...rest }) => rest as AudioAsset);
+}
+
+export async function getAudioAsset(id: string): Promise<AudioAsset | null> {
+  const assets = (await readStoreUnlocked()).audioAssets ?? [];
+  return assets.find((a) => a.id === id) ?? null;
+}
+
+export async function registerAudioUrl(input: {
+  name: string;
+  url: string;
+}): Promise<AudioAsset> {
+  return mutateStore((store) => {
+    const row: AudioAsset = {
+      id: `aud_${randomUUID().slice(0, 8)}`,
+      name: input.name.trim() || "Voicemail",
+      url: input.url.trim(),
+      source: "url",
+      createdAt: new Date().toISOString(),
+    };
+    store.audioAssets = [row, ...(store.audioAssets ?? [])].slice(0, 100);
+    store.preferences = {
+      ...store.preferences,
+      defaultAudioUrl: row.url,
+      defaultAudioAssetId: row.id,
+    };
+    return { ...row };
+  });
+}
+
+export async function uploadAudioAsset(input: {
+  name: string;
+  bytes: Buffer;
+  contentType?: string;
+  ext?: string;
+}): Promise<AudioAsset> {
+  await mkdir(AUDIO_DIR, { recursive: true });
+  const id = `aud_${randomUUID().slice(0, 8)}`;
+  const ext =
+    input.ext ||
+    (input.contentType?.includes("mpeg") || input.contentType?.includes("mp3")
+      ? "mp3"
+      : input.contentType?.includes("m4a") || input.contentType?.includes("mp4")
+        ? "m4a"
+        : "wav");
+  const filename = `${id}.${ext}`;
+  const localPath = path.join(AUDIO_DIR, filename);
+  await writeFile(localPath, input.bytes);
+  const url = `${publicAppUrl()}/api/audio/${id}/file`;
+  const contentType =
+    input.contentType ||
+    (ext === "mp3"
+      ? "audio/mpeg"
+      : ext === "m4a"
+        ? "audio/mp4"
+        : "audio/wav");
+
+  return mutateStore((store) => {
+    const row: AudioAsset = {
+      id,
+      name: input.name.trim() || "Uploaded voicemail",
+      url,
+      contentType,
+      localPath,
+      source: "upload",
+      createdAt: new Date().toISOString(),
+    };
+    store.audioAssets = [row, ...(store.audioAssets ?? [])].slice(0, 100);
+    store.preferences = {
+      ...store.preferences,
+      defaultAudioUrl: row.url,
+      defaultAudioAssetId: row.id,
+    };
+    const { localPath: _lp, ...publicRow } = row;
+    return publicRow as AudioAsset;
   });
 }
 

@@ -53,8 +53,9 @@ Then `campaigns_update` with `schedule` (+ `ramp` if used) and confirm the summa
 - They can ask status anytime: `campaigns_get`, `inbox_list`.
 - Pause: `campaigns_update` `{ status: "PAUSED" }`.
 - Suppress / DNC: `suppress_phone`.
+- From-number spam check: `reputation_check` `{ force: true }` (also runs automatically once/day via sequencer cron). Report any FLAGGED / quarantined DIDs.
 
-## Launch blockers (fix user clearly)
+## Launch blockers (tell user clearly)
 Need all of: sendable leads, ≥1 line, audioUrl, sendDays. API returns `launch_blocked` with `blockers`.
 
 ## Do not

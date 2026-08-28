@@ -5,6 +5,7 @@ import {
   checkRateLimit,
   clientKeyFromRequest,
 } from "@/lib/security/rate-limit";
+import { runDailyReputationChecks } from "@/lib/reputation/run-daily";
 import {
   drainActiveCampaigns,
   reconcileCampaigns,
@@ -127,9 +128,24 @@ export async function POST(req: Request) {
       typeof (json as { limit: unknown }).limit === "number"
         ? Math.min(200, Math.max(1, (json as { limit: number }).limit))
         : 25;
+    const forceReputation =
+      Boolean(
+        json &&
+          typeof json === "object" &&
+          (json as { forceReputation?: unknown }).forceReputation === true,
+      );
+    // Once-daily spam/blacklist pass (no-op if already ran ~today unless forced)
+    const reputation = await runDailyReputationChecks({
+      force: forceReputation,
+    });
     const reconcile = await reconcileCampaigns();
     const result = await drainActiveCampaigns(limit);
-    return NextResponse.json({ mode: "drain", reconcile, ...result });
+    return NextResponse.json({
+      mode: "drain",
+      reputation,
+      reconcile,
+      ...result,
+    });
   }
 
   const parsed = SingleBody.safeParse(json);

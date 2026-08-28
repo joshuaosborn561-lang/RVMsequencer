@@ -546,7 +546,7 @@ export const mcpTools: McpToolDef[] = [
   {
     name: "sequencer_drain",
     description:
-      "Run sequencer tick (reconcile + drain ACTIVE campaigns). Requires cron secret.",
+      "Run sequencer tick (reconcile + drain ACTIVE campaigns). Also runs the daily from-number spam/blacklist check if due. Requires cron secret.",
     method: "POST",
     path: "/api/sequencer/tick",
     body: true,
@@ -556,9 +556,32 @@ export const mcpTools: McpToolDef[] = [
       properties: {
         drain: { type: "boolean", default: true },
         limit: { type: "number", description: "Max claims this tick (1–200)" },
+        forceReputation: {
+          type: "boolean",
+          description: "Force daily reputation/spam check even if already ran today",
+        },
       },
     },
     covers: ["src/app/api/sequencer/tick/route.ts"],
+  },
+  {
+    name: "reputation_check",
+    description:
+      "Daily spam/blacklist/health check for Twilio from-numbers (DIDs). Uses Hiya when HIYA_API_KEY is set, plus internal callback-rate signal. Auto-quarantines FLAGGED / degrades MIXED_HIGH. Syncs to Supabase rvm_caller_id_numbers + rvm_reputation_checks. Requires cron secret.",
+    method: "POST",
+    path: "/api/reputation/check",
+    body: true,
+    auth: "cron",
+    inputSchema: {
+      type: "object",
+      properties: {
+        force: {
+          type: "boolean",
+          description: "Run even if already checked in the last ~20 hours",
+        },
+      },
+    },
+    covers: ["src/app/api/reputation/check/route.ts"],
   },
   {
     name: "delivery_status",

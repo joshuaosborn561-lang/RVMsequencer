@@ -118,6 +118,67 @@ export async function insertRvmCallback(row: RvmCallbackRow) {
   });
 }
 
+export type RvmCallerIdRow = {
+  e164: string;
+  provider?: string;
+  purpose?: string;
+  status?: string;
+  warmup_day?: number;
+  daily_cap_current?: number;
+  fcr_registered?: boolean;
+  reputation_label?: string;
+  reputation_score?: number | null;
+  reputation_source?: string | null;
+  last_reputation_check_at?: string | null;
+  callback_rate_7d?: number | null;
+  pool_avg_callback_rate_7d?: number | null;
+  retired_at?: string | null;
+  retired_reason?: string | null;
+  client_id?: string | null;
+  raw?: Record<string, unknown>;
+};
+
+export async function upsertCallerIdNumber(row: RvmCallerIdRow) {
+  if (!supabaseConfig()) return { skipped: true as const, ok: false as const };
+  return sbFetch("rvm_caller_id_numbers?on_conflict=e164", {
+    method: "POST",
+    prefer: "resolution=merge-duplicates,return=representation",
+    body: JSON.stringify([
+      {
+        provider: "twilio",
+        purpose: "rvm",
+        status: "healthy",
+        warmup_day: 0,
+        daily_cap_current: 80,
+        fcr_registered: false,
+        reputation_label: "UNKNOWN",
+        ...row,
+        updated_at: new Date().toISOString(),
+      },
+    ]),
+  });
+}
+
+export type RvmReputationCheckRow = {
+  caller_id_number_id?: string;
+  e164: string;
+  checked_at: string;
+  source: string;
+  label: string;
+  score?: number | null;
+  flagged: boolean;
+  details?: Record<string, unknown>;
+};
+
+export async function insertReputationCheck(row: RvmReputationCheckRow) {
+  if (!supabaseConfig()) return { skipped: true as const, ok: false as const };
+  return sbFetch("rvm_reputation_checks", {
+    method: "POST",
+    prefer: "return=representation",
+    body: JSON.stringify([row]),
+  });
+}
+
 /** Pull Slybroadcast campaign_result and patch dial_status / fail_reason / carrier. */
 export async function refreshSlybroadcastOutcome(sessionId: string) {
   const uid = process.env.SLYBROADCAST_UID?.trim();

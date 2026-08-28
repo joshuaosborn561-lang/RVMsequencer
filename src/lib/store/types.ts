@@ -187,6 +187,8 @@ export type WorkspaceSettings = {
   callForwardTimeoutSec?: number;
   hardCapDailySends?: number;
   lineMinGapSec?: number;
+  /** ISO timestamp of last daily spam/blacklist reputation pass. */
+  lastReputationCheckAt?: string;
 };
 
 /** Saved defaults so Claude / skills can reuse setup across chats. */

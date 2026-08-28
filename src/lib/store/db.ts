@@ -537,6 +537,14 @@ export async function findSentAttemptForStep(
   );
 }
 
+/** Attempts created at/after `sinceIso` (inclusive). Used by reputation daily job. */
+export async function listAttemptsSince(
+  sinceIso: string,
+): Promise<AttemptRecord[]> {
+  const store = await readStoreUnlocked();
+  return store.attempts.filter((a) => a.createdAt >= sinceIso);
+}
+
 export async function listLines(): Promise<LineRecord[]> {
   const store = await readStoreUnlocked();
   const now = new Date();

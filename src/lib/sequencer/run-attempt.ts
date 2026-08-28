@@ -137,7 +137,10 @@ export async function runAttempt(input: {
   if (!recordingId && !audioUrl) {
     return {
       status: "FAILED",
-      error: "No Drop Cowboy recording_id (or audio URL) configured",
+      error:
+        process.env.RVM_PROVIDER?.toLowerCase().includes("drop")
+          ? "No Drop Cowboy recording_id (or audio URL) configured"
+          : "No audio URL configured for Slybroadcast",
     };
   }
 

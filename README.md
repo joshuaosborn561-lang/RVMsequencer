@@ -2,7 +2,7 @@
 
 **Smartlead for ringless voicemail** — a sequencer that manages Twilio line pools, warmup/caps, campaigns, and burned-line detection.
 
-> Twilio alone cannot deposit true ringless voicemail. RVM Drop owns the control plane; deposit defaults to **Drop Cowboy** (`/v1/rvm`). Audio = Drop Cowboy `recording_id` (no in-app TTS). See [`docs/RESEARCH.md`](./docs/RESEARCH.md).
+> Twilio alone cannot deposit true ringless voicemail. RVM Drop owns the control plane; deposit defaults to **Slybroadcast** (`c_url` + `c_callerID` = your Twilio DID). Optional Drop Cowboy via `RVM_PROVIDER=dropcowboy`. See [`docs/RESEARCH.md`](./docs/RESEARCH.md).
 
 Deploy target: **Railway** project `RVM Drop` (HTTPS + Postgres + 5‑minute sequencer cron).
 
@@ -20,23 +20,25 @@ Tools like [Topa.io](https://topa.io) are excellent RVM channel bolt-ons (AI voi
 - Next.js App Router UI — Smartlead-style campaigns, CSV wizard, Master Inbox, per-client API keys
 - File store (`.data/`) until Postgres is linked; Prisma schema includes Client / ApiKey / Inbox
 - Pure TS engines: warmup, line picker, compliance, reputation, cost estimator, local send windows
-- Pluggable delivery (`MOCK`, **Drop Cowboy**, Slybroadcast, VoiceDrop, Twilio AMD, …)
+- Pluggable delivery (`MOCK`, **Slybroadcast**, Drop Cowboy, VoiceDrop, Twilio AMD, …)
+- **MCP server** for Claude — [`mcp/`](./mcp/) (catalog must cover every API route)
 
-**Go live:** see [`docs/GO_LIVE.md`](./docs/GO_LIVE.md) for keys, cron, Twilio webhooks, and first-100-drops path.
+**Go live:** see [`docs/GO_LIVE.md`](./docs/GO_LIVE.md). **Claude MCP:** [`mcp/README.md`](./mcp/README.md).
 
 ## Quick start
 
 ```bash
 pnpm install
 cp .env.example .env
-# fill: DROPCOWBOY_*, DNC_PROJECT_API_TOKEN, TWILIO_*, NEXT_PUBLIC_APP_URL
+# fill: SLYBROADCAST_*, TWILIO_*, DNC_PROJECT_API_TOKEN, NEXT_PUBLIC_APP_URL
 pnpm dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
 
 ```bash
-pnpm verify   # warmup, timezone windows, DNC, sequencer tick
+pnpm verify   # engines + MCP catalog coverage
+pnpm mcp      # stdio MCP for Claude Desktop
 pnpm build
 ```
 
@@ -46,13 +48,13 @@ pnpm build
 CSV / API leads
   → DNC scrub + local send window
   → Twilio line pick (sticky / weighted)
-  → Drop Cowboy POST /v1/rvm (recording_id + forwarding_number)
+  → Slybroadcast (audio URL + c_callerID = DID)
   → webhook → attempt ledger
   → inbound callback on Twilio DID → suppress + cancel queue
+  → step N only after prior deliveryStatus delivered|sent
 ```
 
-Also: `POST /api/scrub`, `GET /api/timezone?phone=`
-
+Also: `POST /api/scrub`, `GET /api/timezone?phone=`, MCP tools for all of the above.
 ## Architecture
 
 ```
@@ -62,13 +64,13 @@ POST /api/sequencer/tick
   → global suppression + DNC scrub
   → recipient-local send window + send jitter
   → line picker (min gap + sticky + weighted)
-  → Drop Cowboy POST /v1/rvm (recording_id + forwarding_number)
+  → Slybroadcast (hosted audio URL + c_callerID)
   → webhook → attempt ledger
 ```
 
-Also: `POST /api/scrub`, `GET /api/timezone?phone=`
+Also: `POST /api/scrub`, `GET /api/timezone?phone=`, `pnpm mcp`
 
-Hardening: **`docs/HARDENING.md`**. Go-live checklist: **`docs/LIVE.md`**. Research: **`docs/RESEARCH.md`**.
+Hardening: **`docs/HARDENING.md`**. Go-live checklist: **`docs/LIVE.md`**. Research: **`docs/RESEARCH.md`**. MCP: **`mcp/README.md`**.
 
 ## Compliance
 

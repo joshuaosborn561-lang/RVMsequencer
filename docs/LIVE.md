@@ -28,12 +28,10 @@ Add Redis in Railway: **New → Database → Redis**, then variable reference `R
 | `DATA_DIR` | Yes | `/data` |
 | `CRON_SECRET` | Yes | Same value cron sends as `x-cron-secret` |
 | `NEXT_PUBLIC_APP_URL` | Yes | `https://rvm-drop-production.up.railway.app` |
-| `DROPCOWBOY_TEAM_ID` | Yes | Drop Cowboy API Settings |
-| `DROPCOWBOY_SECRET` | Yes | Drop Cowboy API Settings |
-| `DROPCOWBOY_BRAND_ID` | Yes | Trust Center brand GUID |
-| `DROPCOWBOY_RECORDING_ID` | Or per campaign | Default recording GUID |
-| `DROPCOWBOY_POOL_ID` | Optional | Private number pool |
-| `DROPCOWBOY_BYOC_CALLER_ID` | Optional (`1`) | Send Twilio DID as `caller_id` (BYOC only) |
+| `RVM_PROVIDER` | Optional | `slybroadcast` (default) \| `dropcowboy` \| `mock` |
+| `SLYBROADCAST_UID` | Yes (default provider) | Slybroadcast login email |
+| `SLYBROADCAST_PASSWORD` | Yes | Slybroadcast password |
+| `DROPCOWBOY_TEAM_ID` / `SECRET` / `BRAND_ID` | If `RVM_PROVIDER=dropcowboy` | Drop Cowboy API |
 | `DNC_PROJECT_API_TOKEN` | Recommended | External DNC scrub |
 | `TWILIO_ACCOUNT_SID` | Yes for inbound | Number inventory + webhooks |
 | `TWILIO_AUTH_TOKEN` | Yes for inbound | Signature validation |
@@ -53,20 +51,18 @@ Add Redis in Railway: **New → Database → Redis**, then variable reference `R
 
 ---
 
-## 4. Drop Cowboy status → ledger
+## 4. Provider status → ledger
 
-Point Drop Cowboy `callback_url` (per send or dashboard default) at:
+Point Slybroadcast `c_dispo_url` (or Drop Cowboy `callback_url`) at:
 
 `POST {APP}/api/webhooks/rvm-status?secret=$RVM_STATUS_WEBHOOK_SECRET`
-
-Native Drop Cowboy payload is accepted (`drop_id`, `foreign_id`, `status: success|failure`, `reason`).
 
 Normalized body example:
 
 ```json
 {
-  "provider": "DROP_COWBOY",
-  "providerMessageId": "<drop_id>",
+  "provider": "SLYBROADCAST",
+  "providerMessageId": "<session_id>",
   "foreignId": "<campaignId>_<leadId>_step1",
   "status": "delivered"
 }

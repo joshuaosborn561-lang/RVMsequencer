@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getDncScrubbers, getDropCowboyDelivery } from "@/lib/config";
+import { getDncScrubbers, getDefaultDelivery } from "@/lib/config";
 import {
   checkRateLimit,
   clientKeyFromRequest,
@@ -145,7 +145,7 @@ export async function POST(req: Request) {
     lines,
     stickyLineId,
     dncScrubbers: getDncScrubbers(internalBlocked ?? []),
-    delivery: getDropCowboyDelivery(campaign.recordingId),
+    delivery: getDefaultDelivery({ recordingId: campaign.recordingId }),
     isSuppressed: (phone) => isSuppressed(phone),
   });
 

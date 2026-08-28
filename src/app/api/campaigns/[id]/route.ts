@@ -85,12 +85,18 @@ export async function PATCH(req: Request, ctx: Ctx) {
       existing.steps[0]?.recordingId;
     const audioUrl = parsed.data.audioUrl || existing.audioUrl;
     const stepAudio = existing.steps[0]?.audioUrl;
-    const hasAudio = Boolean(recordingId || audioUrl || stepAudio);
+    const provider = (process.env.RVM_PROVIDER ?? "slybroadcast").toLowerCase();
+    const needsSlyAudio = !provider.includes("drop");
+    const hasAudio = needsSlyAudio
+      ? Boolean(audioUrl || stepAudio)
+      : Boolean(recordingId || audioUrl || stepAudio);
 
     const blockers: string[] = [];
     if (sendable.length === 0) blockers.push("no_sendable_leads");
     if (lineIds.length === 0) blockers.push("no_lines");
-    if (!hasAudio) blockers.push("no_recording_or_audio");
+    if (!hasAudio) {
+      blockers.push(needsSlyAudio ? "no_audio_url" : "no_recording_or_audio");
+    }
     const days = parsed.data.schedule?.sendDays ?? existing.schedule.sendDays;
     if (!days.length) blockers.push("no_send_days");
 
@@ -99,7 +105,9 @@ export async function PATCH(req: Request, ctx: Ctx) {
         {
           error: "launch_blocked",
           blockers,
-          hint: "Need sendable leads, at least one line, a Drop Cowboy recording id (or audio URL), and send days.",
+          hint: needsSlyAudio
+            ? "Need sendable leads, at least one line, a hosted audio URL (Slybroadcast c_url), and send days."
+            : "Need sendable leads, at least one line, a Drop Cowboy recording id (or audio URL), and send days.",
         },
         { status: 400 },
       );

@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "rvm-drop": {
+      "command": "pnpm",
+      "args": ["exec", "tsx", "mcp/server.ts"],
+      "cwd": "/ABSOLUTE/PATH/TO/RVMsequencer",
+      "env": {
+        "RVM_DROP_BASE_URL": "https://rvm-drop-production.up.railway.app",
+        "RVM_DROP_CRON_SECRET": "your-cron-secret",
+        "RVM_DROP_WEBHOOK_SECRET": "your-rvm-status-webhook-secret"
+      }
+    }
+  }
+}

@@ -8,11 +8,14 @@
     "start": "next start -p ${PORT:-3000}",
     "start:railway": "prisma db push --skip-generate --accept-data-loss && next start -p ${PORT:-3000}",
     "lint": "eslint",
-    "verify": "tsx scripts/verify-core.ts",
+    "verify": "tsx scripts/verify-core.ts && tsx scripts/check-mcp-coverage.ts",
+    "verify:mcp": "tsx scripts/check-mcp-coverage.ts",
+    "mcp": "tsx mcp/server.ts",
     "db:generate": "prisma generate",
     "db:push": "prisma db push"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@prisma/client": "^6.19.0",
     "date-fns": "^4.4.0",
     "date-fns-tz": "^3.2.0",

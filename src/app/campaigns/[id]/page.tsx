@@ -608,9 +608,9 @@ function SequenceTab({
             Sequence
           </h2>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            RVM steps with wait days. Upload audio in Drop Cowboy → Recordings,
-            paste the recording GUID here. Variables in script notes only:{" "}
-            {"{{first_name}}"}, {"{{company}}"}.
+            RVM steps with wait days. Host a WAV/MP3 (≥5s) and paste the public
+            URL — Slybroadcast fetches it and shows your Twilio line as caller
+            ID. Variables in script notes: {"{{first_name}}"}, {"{{company}}"}.
           </p>
         </div>
         <button type="button" className="sl-btn sl-btn-ghost" onClick={onNext}>
@@ -626,20 +626,20 @@ function SequenceTab({
             onChange={(e) => setScript(e.target.value)}
           />
         </Field>
-        <Field label="Drop Cowboy recording id (required)">
-          <input
-            className={inputClass}
-            value={recordingId}
-            onChange={(e) => setRecordingId(e.target.value)}
-            placeholder="Recording GUID from Drop Cowboy → Recordings"
-          />
-        </Field>
-        <Field label="Audio URL (optional — needs Drop Cowboy audio_url approval)">
+        <Field label="Audio URL (required — Slybroadcast c_url)">
           <input
             className={inputClass}
             value={audioUrl}
             onChange={(e) => setAudioUrl(e.target.value)}
-            placeholder="https://… (usually leave blank)"
+            placeholder="https://…/message.mp3"
+          />
+        </Field>
+        <Field label="Drop Cowboy recording id (only if RVM_PROVIDER=dropcowboy)">
+          <input
+            className={inputClass}
+            value={recordingId}
+            onChange={(e) => setRecordingId(e.target.value)}
+            placeholder="Optional recording GUID"
           />
         </Field>
         <Field label="Delay before send (days)">
@@ -1060,10 +1060,10 @@ function LaunchTab({
   ).length;
   const hasLines = campaign.lineIds.length > 0;
   const hasAudio = Boolean(
-    campaign.dropCowboyRecordingId ||
-      campaign.audioUrl ||
-      campaign.steps[0]?.recordingId ||
-      campaign.steps[0]?.audioUrl,
+    campaign.audioUrl ||
+      campaign.steps[0]?.audioUrl ||
+      campaign.dropCowboyRecordingId ||
+      campaign.steps[0]?.recordingId,
   );
   const canStart =
     sendable.length > 0 && hasLines && hasAudio && campaign.schedule.sendDays.length > 0;

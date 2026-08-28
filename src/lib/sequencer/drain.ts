@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { getDncScrubbers, getDropCowboyDelivery } from "@/lib/config";
+import { getDncScrubbers, getDefaultDelivery } from "@/lib/config";
 import { HARD_CAP_ACTIVE_CAMPAIGNS } from "@/lib/hardening/constants";
 import {
   nextFailureEligibleAt,
@@ -315,9 +315,9 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
           lines: pickable,
           stickyLineId: sch.stickyLineId ?? lead.stickyLineId,
           dncScrubbers: getDncScrubbers(),
-          delivery: getDropCowboyDelivery(
-            step.recordingId ?? campaign.dropCowboyRecordingId,
-          ),
+          delivery: getDefaultDelivery({
+            recordingId: step.recordingId ?? campaign.dropCowboyRecordingId,
+          }),
           now,
           isSuppressed: (phone) => isSuppressed(phone),
           callbackUrl: statusWebhook,
@@ -415,8 +415,11 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
           out.failed += 1;
           const err = result.error;
           if (
-            /NOT_CONFIGURED|UNAUTHORIZED|401|403|DROPCOWBOY|DROP_COWBOY/i.test(err) ||
-            err === "No Drop Cowboy recording_id (or audio URL) configured"
+            /NOT_CONFIGURED|UNAUTHORIZED|401|403|SLYBROADCAST|DROPCOWBOY|DROP_COWBOY/i.test(
+              err,
+            ) ||
+            err === "No Drop Cowboy recording_id (or audio URL) configured" ||
+            err === "No audio URL configured for Slybroadcast"
           ) {
             hardProviderFail = true;
           }

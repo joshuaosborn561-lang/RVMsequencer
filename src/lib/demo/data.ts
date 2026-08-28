@@ -83,7 +83,7 @@ export const demoCampaigns = [
     enrolled: 1840,
     sentToday: 126,
     deliveredToday: 101,
-    provider: "DROP_COWBOY",
+    provider: "SLYBROADCAST",
     mode: "RVM_PROVIDER",
   },
   {
@@ -102,10 +102,10 @@ export const warmupSchedule = buildWarmupSchedule();
 
 /** Prefer API-cheap providers in the overview table (skip Cowboy noise). */
 const OVERVIEW_DELIVERY_IDS = [
-  "dropcowboy_platform",
   "slybroadcast_payg_5k",
-  "leadsrain_static",
   "slybroadcast_2k_monthly",
+  "dropcowboy_platform",
+  "leadsrain_static",
   "topa_ai",
 ];
 

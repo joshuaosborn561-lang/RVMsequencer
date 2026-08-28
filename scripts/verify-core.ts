@@ -191,7 +191,17 @@ const burned = evaluateLineHealth({
 });
 assert.equal(burned.action, "quarantine");
 
-// PAYG Drop.co + static reuse = exactly $100 for 2k
+// Drop Cowboy + static recording reuse stays under $100 at 2k @ ~$0.025
+const dropcowboy = estimateRun({
+  drops: 2000,
+  delivery: DELIVERY_SCENARIOS.find((d) => d.id === "dropcowboy_platform")!,
+  tts: TTS_SCENARIOS.find((t) => t.id === "static_reuse")!,
+  personalizedFraction: 0,
+});
+assert.equal(dropcowboy.under100, true);
+assert.equal(dropcowboy.totalUsd, 50);
+
+// Legacy Drop.co Simple still models $100 for 2k
 const dropco = estimateRun({
   drops: 2000,
   delivery: DELIVERY_SCENARIOS.find((d) => d.id === "dropco_simple")!,
@@ -200,16 +210,6 @@ const dropco = estimateRun({
 });
 assert.equal(dropco.under100, true);
 assert.equal(dropco.totalUsd, 100);
-
-// One-shot high-quality TTS is noise (~$0.04) if not personalized per lead
-const once = estimateRun({
-  drops: 2000,
-  delivery: DELIVERY_SCENARIOS.find((d) => d.id === "dropco_simple")!,
-  tts: TTS_SCENARIOS.find((t) => t.id === "eleven_multi")!,
-  personalizedFraction: 0, // generate once → amortized ~0 across 2k in this model
-  charsPerMessage: 400,
-});
-assert.equal(once.under100, true);
 
 // Regenerating Multilingual per lead on $0.05 deposit breaks $100
 const expensive = estimateRun({
@@ -406,6 +406,7 @@ async function main() {
       id: "c1",
       scriptTemplate: "Hey {{first_name}}",
       audioUrl: "https://example.com/a.mp3",
+      recordingId: "rec_test",
       schedule: {
         sendWindowStart: 0,
         sendWindowEnd: 24,
@@ -440,7 +441,7 @@ async function main() {
     campaign: {
       id: "c1",
       scriptTemplate: "Hey {{first_name}}",
-      audioUrl: "https://example.com/a.mp3",
+      recordingId: "rec_test",
       schedule: {
         sendWindowStart: 9,
         sendWindowEnd: 20,
@@ -474,7 +475,7 @@ async function main() {
     campaign: {
       id: "c1",
       scriptTemplate: "Hey",
-      audioUrl: "https://example.com/a.mp3",
+      recordingId: "rec_test",
       schedule: {
         sendWindowStart: 0,
         sendWindowEnd: 24,

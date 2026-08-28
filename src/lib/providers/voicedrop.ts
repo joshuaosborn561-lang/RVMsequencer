@@ -22,6 +22,15 @@ export function createVoiceDropProvider(config: {
         };
       }
 
+      if (!input.audioUrl && !input.ttsBody) {
+        return {
+          ok: false,
+          status: "failed",
+          errorCode: "NO_AUDIO",
+          errorDetail: "VoiceDrop requires audio_url or tts_body",
+        };
+      }
+
       const res = await fetch(`${baseUrl}/v1/rvm`, {
         method: "POST",
         headers: {

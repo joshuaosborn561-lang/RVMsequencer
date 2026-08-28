@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getDncScrubbers, getDropCoDelivery, getElevenLabs } from "@/lib/config";
+import { getDncScrubbers, getDropCowboyDelivery } from "@/lib/config";
 import {
   checkRateLimit,
   clientKeyFromRequest,
@@ -30,6 +30,7 @@ const SingleBody = z.object({
     lastName: z.string().optional().nullable(),
     company: z.string().optional().nullable(),
     timezone: z.string().optional().nullable(),
+    postalCode: z.string().optional().nullable(),
     consentStatus: z.enum([
       "UNKNOWN",
       "EXPRESS_WRITTEN",
@@ -42,9 +43,8 @@ const SingleBody = z.object({
   campaign: z.object({
     id: z.string(),
     scriptTemplate: z.string(),
+    recordingId: z.string().optional().nullable(),
     audioUrl: z.string().url().optional().nullable(),
-    elevenVoiceId: z.string().optional().nullable(),
-    dropCoCampaignToken: z.string().optional().nullable(),
     schedule: z.object({
       sendWindowStart: z.number().int().min(0).max(23),
       sendWindowEnd: z.number().int().min(1).max(24),
@@ -145,8 +145,7 @@ export async function POST(req: Request) {
     lines,
     stickyLineId,
     dncScrubbers: getDncScrubbers(internalBlocked ?? []),
-    delivery: getDropCoDelivery(campaign.dropCoCampaignToken),
-    voice: process.env.ELEVENLABS_API_KEY ? getElevenLabs() : undefined,
+    delivery: getDropCowboyDelivery(campaign.recordingId),
     isSuppressed: (phone) => isSuppressed(phone),
   });
 

@@ -1,8 +1,8 @@
 # RVM Drop
 
-**Smartlead for ringless voicemail** — a sequencer that manages Twilio line pools, warmup/caps, AI voice generation, campaigns, and burned-line detection.
+**Smartlead for ringless voicemail** — a sequencer that manages Twilio line pools, warmup/caps, campaigns, and burned-line detection.
 
-> Twilio alone cannot deposit true ringless voicemail. RVM Drop owns the control plane; deposit defaults to **Drop.co PAYG** (alts: Slybroadcast PAYG, LeadsRain). Voice = ElevenLabs highest quality, **generate once**. See [`docs/RESEARCH.md`](./docs/RESEARCH.md).
+> Twilio alone cannot deposit true ringless voicemail. RVM Drop owns the control plane; deposit defaults to **Drop Cowboy** (`/v1/rvm`). Audio = Drop Cowboy `recording_id` (no in-app TTS). See [`docs/RESEARCH.md`](./docs/RESEARCH.md).
 
 Deploy target: **Railway** project `RVM Drop` (HTTPS + Postgres + 5‑minute sequencer cron).
 
@@ -20,7 +20,7 @@ Tools like [Topa.io](https://topa.io) are excellent RVM channel bolt-ons (AI voi
 - Next.js App Router UI — Smartlead-style campaigns, CSV wizard, Master Inbox, per-client API keys
 - File store (`.data/`) until Postgres is linked; Prisma schema includes Client / ApiKey / Inbox
 - Pure TS engines: warmup, line picker, compliance, reputation, cost estimator, local send windows
-- Pluggable delivery (`MOCK`, **Drop.co**, Slybroadcast, VoiceDrop, Twilio AMD, …)
+- Pluggable delivery (`MOCK`, **Drop Cowboy**, Slybroadcast, VoiceDrop, Twilio AMD, …)
 
 **Go live:** see [`docs/GO_LIVE.md`](./docs/GO_LIVE.md) for keys, cron, Twilio webhooks, and first-100-drops path.
 
@@ -29,7 +29,7 @@ Tools like [Topa.io](https://topa.io) are excellent RVM channel bolt-ons (AI voi
 ```bash
 pnpm install
 cp .env.example .env
-# fill: DROP_CO_*, ELEVENLABS_*, DNC_PROJECT_API_TOKEN, NEXT_PUBLIC_APP_URL
+# fill: DROPCOWBOY_*, DNC_PROJECT_API_TOKEN, TWILIO_*, NEXT_PUBLIC_APP_URL
 pnpm dev
 ```
 
@@ -40,6 +40,19 @@ pnpm verify   # warmup, timezone windows, DNC, sequencer tick
 pnpm build
 ```
 
+## Sequencer path
+
+```
+CSV / API leads
+  → DNC scrub + local send window
+  → Twilio line pick (sticky / weighted)
+  → Drop Cowboy POST /v1/rvm (recording_id + forwarding_number)
+  → webhook → attempt ledger
+  → inbound callback on Twilio DID → suppress + cancel queue
+```
+
+Also: `POST /api/scrub`, `GET /api/timezone?phone=`
+
 ## Architecture
 
 ```
@@ -49,11 +62,11 @@ POST /api/sequencer/tick
   → global suppression + DNC scrub
   → recipient-local send window + send jitter
   → line picker (min gap + sticky + weighted)
-  → ElevenLabs audio (generate once)
-  → Drop.co VMDropPostRecords
+  → Drop Cowboy POST /v1/rvm (recording_id + forwarding_number)
+  → webhook → attempt ledger
 ```
 
-Also: `POST /api/scrub`, `POST /api/voice/render`, `GET /api/timezone?phone=`
+Also: `POST /api/scrub`, `GET /api/timezone?phone=`
 
 Hardening: **`docs/HARDENING.md`**. Go-live checklist: **`docs/LIVE.md`**. Research: **`docs/RESEARCH.md`**.
 

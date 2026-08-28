@@ -101,7 +101,7 @@ export default function SettingsPage() {
               </h2>
               <p className="mt-2">
                 Workspace brand: <strong>RVM Drop</strong>. Default delivery
-                Drop.co · voice ElevenLabs · DNC + local windows hard-gated.
+                Drop Cowboy · recorded audio · DNC + local windows hard-gated.
               </p>
             </div>
           ) : null}
@@ -185,7 +185,7 @@ export default function SettingsPage() {
                 </div>
                 <div className="rounded-lg border border-[var(--line)] bg-[var(--bg)]/50 p-3">
                   <p className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
-                    Status (Twilio / Drop.co bridge)
+                    Status (Drop Cowboy webhook)
                   </p>
                   <p className="mt-1 break-all font-[family-name:var(--font-mono)] text-xs">
                     {typeof window !== "undefined"
@@ -260,7 +260,7 @@ export default function SettingsPage() {
                 Go-live checklist
               </h2>
               <ol className="mt-3 list-decimal space-y-2 pl-5">
-                <li>Set Drop.co, ElevenLabs, DNC, Twilio env vars on Railway</li>
+                <li>Set Drop Cowboy, DNC, Twilio env vars on Railway</li>
                 <li>Add Redis + confirm /api/health postgres/redis up</li>
                 <li>Call forwarding number above</li>
                 <li>Twilio DID voice URL → inbound webhook</li>

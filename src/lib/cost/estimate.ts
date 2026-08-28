@@ -1,11 +1,11 @@
 /**
- * Rough unit-economics helpers for the "$100 / 2k drops" target.
- * Numbers are approximate 2026 public rates — re-verify before budgeting.
+ * Rough unit-economics helpers.
+ * Numbers are approximate — re-verify before budgeting.
  *
- * Preference order for Dropseq (PAYG + API, not Drop Cowboy):
- * 1. Drop.co — true PAYG, modern Customer API, $0.05 → $100/2k
+ * Preference order for RVM Drop:
+ * 1. Drop Cowboy — default delivery (`/v1/rvm`, recording_id)
  * 2. Slybroadcast PAYG — never-expire credits + c_callerID
- * 3. LeadsRain — lowest cents, older API surface
+ * 3. LeadsRain / legacy alts
  */
 
 export type CostScenario = {

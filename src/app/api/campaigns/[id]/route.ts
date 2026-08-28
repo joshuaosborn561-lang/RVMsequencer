@@ -29,6 +29,7 @@ const PatchBody = z
           delayDays: z.number().int().min(0),
           scriptTemplate: z.string(),
           voiceId: z.string().optional(),
+          recordingId: z.string().optional(),
           audioUrl: z.string().optional(),
         }),
       )
@@ -47,9 +48,12 @@ const PatchBody = z
         stopOnOptOut: z.boolean().optional(),
       })
       .optional(),
-    dropCoCampaignToken: z.string().optional(),
-    elevenVoiceId: z.string().optional(),
+    dropCowboyRecordingId: z.string().optional(),
     audioUrl: z.string().optional(),
+    /** @deprecated */
+    dropCoCampaignToken: z.string().optional(),
+    /** @deprecated */
+    elevenVoiceId: z.string().optional(),
   })
   .strict();
 
@@ -75,18 +79,18 @@ export async function PATCH(req: Request, ctx: Ctx) {
         (l.status ?? "PENDING") !== "SENT",
     );
     const lineIds = parsed.data.lineIds ?? existing.lineIds;
+    const recordingId =
+      parsed.data.dropCowboyRecordingId ||
+      existing.dropCowboyRecordingId ||
+      existing.steps[0]?.recordingId;
     const audioUrl = parsed.data.audioUrl || existing.audioUrl;
-    const elevenVoiceId =
-      parsed.data.elevenVoiceId ||
-      existing.elevenVoiceId ||
-      existing.steps[0]?.voiceId;
     const stepAudio = existing.steps[0]?.audioUrl;
-    const hasAudio = Boolean(audioUrl || stepAudio || elevenVoiceId);
+    const hasAudio = Boolean(recordingId || audioUrl || stepAudio);
 
     const blockers: string[] = [];
     if (sendable.length === 0) blockers.push("no_sendable_leads");
     if (lineIds.length === 0) blockers.push("no_lines");
-    if (!hasAudio) blockers.push("no_audio_or_voice");
+    if (!hasAudio) blockers.push("no_recording_or_audio");
     const days = parsed.data.schedule?.sendDays ?? existing.schedule.sendDays;
     if (!days.length) blockers.push("no_send_days");
 
@@ -95,7 +99,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
         {
           error: "launch_blocked",
           blockers,
-          hint: "Need sendable leads, at least one line, audio URL or ElevenLabs voice id, and send days.",
+          hint: "Need sendable leads, at least one line, a Drop Cowboy recording id (or audio URL), and send days.",
         },
         { status: 400 },
       );

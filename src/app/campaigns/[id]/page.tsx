@@ -582,22 +582,22 @@ function SequenceTab({
   const [audioUrl, setAudioUrl] = useState(
     campaign.audioUrl ?? step?.audioUrl ?? "",
   );
-  const [voiceId, setVoiceId] = useState(
-    campaign.elevenVoiceId ?? step?.voiceId ?? "",
+  const [recordingId, setRecordingId] = useState(
+    campaign.dropCowboyRecordingId ?? step?.recordingId ?? "",
   );
 
   useEffect(() => {
     setScript(step?.scriptTemplate ?? "");
     setDelay(String(step?.delayDays ?? 0));
     setAudioUrl(campaign.audioUrl ?? step?.audioUrl ?? "");
-    setVoiceId(campaign.elevenVoiceId ?? step?.voiceId ?? "");
+    setRecordingId(campaign.dropCowboyRecordingId ?? step?.recordingId ?? "");
   }, [
     step?.scriptTemplate,
     step?.delayDays,
     step?.audioUrl,
-    step?.voiceId,
+    step?.recordingId,
     campaign.audioUrl,
-    campaign.elevenVoiceId,
+    campaign.dropCowboyRecordingId,
   ]);
 
   return (
@@ -608,9 +608,9 @@ function SequenceTab({
             Sequence
           </h2>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            RVM steps with wait days — Smartlead Sequence tab. Variables:{" "}
-            {"{{first_name}}"}, {"{{company}}"}. Prefer static audio URL
-            (generate once).
+            RVM steps with wait days. Upload audio in Drop Cowboy → Recordings,
+            paste the recording GUID here. Variables in script notes only:{" "}
+            {"{{first_name}}"}, {"{{company}}"}.
           </p>
         </div>
         <button type="button" className="sl-btn sl-btn-ghost" onClick={onNext}>
@@ -618,7 +618,7 @@ function SequenceTab({
         </button>
       </div>
       <div className="mt-4 flex flex-col gap-4">
-        <Field label="Script template">
+        <Field label="Script template (notes / compliance copy)">
           <textarea
             rows={6}
             className={inputClass}
@@ -626,20 +626,20 @@ function SequenceTab({
             onChange={(e) => setScript(e.target.value)}
           />
         </Field>
-        <Field label="Audio URL (recommended — Drop.co fetches this)">
+        <Field label="Drop Cowboy recording id (required)">
+          <input
+            className={inputClass}
+            value={recordingId}
+            onChange={(e) => setRecordingId(e.target.value)}
+            placeholder="Recording GUID from Drop Cowboy → Recordings"
+          />
+        </Field>
+        <Field label="Audio URL (optional — needs Drop Cowboy audio_url approval)">
           <input
             className={inputClass}
             value={audioUrl}
             onChange={(e) => setAudioUrl(e.target.value)}
-            placeholder="https://…"
-          />
-        </Field>
-        <Field label="ElevenLabs voice id (fallback if no audio URL)">
-          <input
-            className={inputClass}
-            value={voiceId}
-            onChange={(e) => setVoiceId(e.target.value)}
-            placeholder="ELEVENLABS_DEFAULT_VOICE_ID or PVC id"
+            placeholder="https://… (usually leave blank)"
           />
         </Field>
         <Field label="Delay before send (days)">
@@ -656,14 +656,14 @@ function SequenceTab({
             onClick={() =>
               void onSave({
                 audioUrl: audioUrl || undefined,
-                elevenVoiceId: voiceId || undefined,
+                dropCowboyRecordingId: recordingId || undefined,
                 steps: [
                   {
                     id: step?.id ?? "step_1",
                     position: 1,
                     delayDays: Number(delay) || 0,
                     scriptTemplate: script,
-                    voiceId: voiceId || undefined,
+                    recordingId: recordingId || undefined,
                     audioUrl: audioUrl || undefined,
                   },
                   ...campaign.steps.filter((s) => s.position !== 1),
@@ -1060,10 +1060,10 @@ function LaunchTab({
   ).length;
   const hasLines = campaign.lineIds.length > 0;
   const hasAudio = Boolean(
-    campaign.audioUrl ||
-      campaign.elevenVoiceId ||
-      campaign.steps[0]?.audioUrl ||
-      campaign.steps[0]?.voiceId,
+    campaign.dropCowboyRecordingId ||
+      campaign.audioUrl ||
+      campaign.steps[0]?.recordingId ||
+      campaign.steps[0]?.audioUrl,
   );
   const canStart =
     sendable.length > 0 && hasLines && hasAudio && campaign.schedule.sendDays.length > 0;

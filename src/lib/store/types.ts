@@ -31,7 +31,11 @@ export type SequenceStepRecord = {
   position: number;
   delayDays: number;
   scriptTemplate: string;
+  /** @deprecated ElevenLabs removed — kept for old store rows */
   voiceId?: string;
+  /** Drop Cowboy recording GUID for this step (overrides campaign default) */
+  recordingId?: string;
+  /** Optional hosted audio URL (Drop Cowboy audio_url — requires approval) */
   audioUrl?: string;
 };
 
@@ -65,9 +69,14 @@ export type CampaignRecord = {
     activeDay?: number;
     activatedAt?: string;
   };
-  dropCoCampaignToken?: string;
-  elevenVoiceId?: string;
+  /** Drop Cowboy recording GUID (Recordings tab) — preferred audio source */
+  dropCowboyRecordingId?: string;
+  /** Optional hosted audio URL if Drop Cowboy account allows audio_url */
   audioUrl?: string;
+  /** @deprecated Drop.co removed as default — old store rows only */
+  dropCoCampaignToken?: string;
+  /** @deprecated ElevenLabs removed */
+  elevenVoiceId?: string;
   lastDrainAt?: string;
   lastDrainStats?: {
     attempted: number;

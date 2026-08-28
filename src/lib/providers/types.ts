@@ -22,9 +22,14 @@ export type DeliveryResult = z.infer<typeof DeliveryResultSchema>;
 export type SendRvmInput = {
   toE164: string;
   fromE164: string;
-  audioUrl: string;
+  /** Hosted audio URL — Drop Cowboy needs account approval / BYOC for audio_url */
+  audioUrl?: string;
+  /** Drop Cowboy dashboard recording GUID (preferred) */
+  recordingId?: string;
   foreignId: string;
   callbackUrl?: string;
+  /** Contact postal code for TCPA window accuracy */
+  postalCode?: string;
   /** Optional pre-rendered TTS body for providers that accept text + voice_id */
   ttsBody?: string;
   voiceExternalId?: string;

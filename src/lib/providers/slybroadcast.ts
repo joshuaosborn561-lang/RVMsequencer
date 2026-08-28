@@ -29,6 +29,15 @@ export function createSlybroadcastProvider(config: {
         };
       }
 
+      if (!input.audioUrl) {
+        return {
+          ok: false,
+          status: "failed",
+          errorCode: "NO_AUDIO_URL",
+          errorDetail: "Slybroadcast requires a hosted audio URL",
+        };
+      }
+
       const toDigits = input.toE164.replace(/\D/g, "").replace(/^1/, "");
       const fromDigits = input.fromE164.replace(/\D/g, "").replace(/^1/, "");
       const audioExt = guessAudioExt(input.audioUrl);

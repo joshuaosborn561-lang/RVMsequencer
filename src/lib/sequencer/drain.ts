@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { getDncScrubbers, getDropCoDelivery, getElevenLabs } from "@/lib/config";
+import { getDncScrubbers, getDropCowboyDelivery } from "@/lib/config";
 import { HARD_CAP_ACTIVE_CAMPAIGNS } from "@/lib/hardening/constants";
 import {
   nextFailureEligibleAt,
@@ -116,7 +116,6 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
     details: [],
   };
 
-  const voice = process.env.ELEVENLABS_API_KEY ? getElevenLabs() : undefined;
   const statusWebhook =
     process.env.NEXT_PUBLIC_APP_URL && process.env.RVM_STATUS_WEBHOOK_SECRET
       ? `${process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")}/api/webhooks/rvm-status`
@@ -293,15 +292,18 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
             lastName: lead.lastName,
             company: lead.company,
             timezone: lead.timezone,
+            postalCode: lead.custom?.zip ?? lead.custom?.postal_code ?? lead.custom?.postalCode,
             consentStatus: lead.consentStatus,
             dnc: lead.dnc,
           },
           campaign: {
             id: campaign.id,
             scriptTemplate: step.scriptTemplate,
+            recordingId:
+              step.recordingId ??
+              campaign.dropCowboyRecordingId ??
+              process.env.DROPCOWBOY_RECORDING_ID,
             audioUrl: step.audioUrl ?? campaign.audioUrl,
-            elevenVoiceId: step.voiceId ?? campaign.elevenVoiceId,
-            dropCoCampaignToken: campaign.dropCoCampaignToken,
             schedule: {
               sendWindowStart: campaign.schedule.sendWindowStart,
               sendWindowEnd: campaign.schedule.sendWindowEnd,
@@ -312,8 +314,9 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
           lines: pickable,
           stickyLineId: sch.stickyLineId ?? lead.stickyLineId,
           dncScrubbers: getDncScrubbers(),
-          delivery: getDropCoDelivery(campaign.dropCoCampaignToken),
-          voice,
+          delivery: getDropCowboyDelivery(
+            step.recordingId ?? campaign.dropCowboyRecordingId,
+          ),
           now,
           isSuppressed: (phone) => isSuppressed(phone),
           callbackUrl: statusWebhook,
@@ -351,10 +354,6 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
             result.lineId,
             result.providerMessageId,
           );
-          if (result.audioUrl && !campaign.audioUrl) {
-            await updateCampaign(campaign.id, { audioUrl: result.audioUrl });
-            campaign.audioUrl = result.audioUrl;
-          }
         } else if (result.status === "SKIPPED") {
           campaignSkipped += 1;
           out.skipped += 1;
@@ -415,8 +414,8 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
           out.failed += 1;
           const err = result.error;
           if (
-            /NOT_CONFIGURED|UNAUTHORIZED|401|403|DROP_CO/i.test(err) ||
-            err === "No audioUrl and no ElevenLabs voice configured"
+            /NOT_CONFIGURED|UNAUTHORIZED|401|403|DROPCOWBOY|DROP_COWBOY/i.test(err) ||
+            err === "No Drop Cowboy recording_id (or audio URL) configured"
           ) {
             hardProviderFail = true;
           }

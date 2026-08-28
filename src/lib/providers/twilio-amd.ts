@@ -27,6 +27,15 @@ export function createTwilioAmdProvider(config: {
         };
       }
 
+      if (!input.audioUrl) {
+        return {
+          ok: false,
+          status: "failed",
+          errorCode: "NO_AUDIO_URL",
+          errorDetail: "Twilio AMD requires a public audioUrl",
+        };
+      }
+
       // Lazy require so the UI scaffold builds without live credentials.
       const twilio = await import("twilio");
       const client = twilio.default(config.accountSid, config.authToken);

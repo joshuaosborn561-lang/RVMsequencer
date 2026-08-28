@@ -4,8 +4,6 @@ import { scrubWithAll } from "@/lib/dnc/scrub";
 import type { DncScrubber } from "@/lib/dnc/types";
 import type { ConsentStatus } from "@/lib/compliance/gates";
 import type { RvmDeliveryProvider } from "@/lib/providers/types";
-import type { VoiceProviderClient } from "@/lib/providers/types";
-import { renderScript } from "@/lib/compliance/gates";
 
 export type AttemptLead = {
   id: string;
@@ -14,19 +12,19 @@ export type AttemptLead = {
   lastName?: string | null;
   company?: string | null;
   timezone?: string | null;
+  /** Optional zip for Drop Cowboy postal_code / TCPA accuracy */
+  postalCode?: string | null;
   consentStatus: ConsentStatus;
   dnc: boolean;
 };
-
 export type AttemptCampaign = {
   id: string;
   schedule: SendSchedule;
   scriptTemplate: string;
-  /** Pre-rendered static audio URL — preferred (generate once) */
+  /** Drop Cowboy recording GUID (preferred) */
+  recordingId?: string | null;
+  /** Hosted audio URL if account allows audio_url */
   audioUrl?: string | null;
-  /** If no audioUrl, render via ElevenLabs once using this voice id */
-  elevenVoiceId?: string | null;
-  dropCoCampaignToken?: string | null;
 };
 
 export type RunAttemptResult =
@@ -34,7 +32,8 @@ export type RunAttemptResult =
       status: "SENT";
       lineId: string;
       providerMessageId?: string;
-      audioUrl: string;
+      audioUrl?: string;
+      recordingId?: string;
       timezone: string;
       costEstimateUsd?: number;
     }
@@ -57,7 +56,7 @@ export type RunAttemptResult =
 
 /**
  * One sequencer tick for a single enrollment:
- * suppress → DNC scrub → local-time send window → line pick → ensure audio → Drop.co send.
+ * suppress → DNC scrub → local-time send window → line pick → Drop Cowboy send.
  */
 export async function runAttempt(input: {
   lead: AttemptLead;
@@ -65,7 +64,6 @@ export async function runAttempt(input: {
   lines: PickableLine[];
   dncScrubbers: DncScrubber[];
   delivery: RvmDeliveryProvider;
-  voice?: VoiceProviderClient;
   now?: Date;
   /** Prefer this line for follow-ups if still eligible. */
   stickyLineId?: string;
@@ -117,7 +115,7 @@ export async function runAttempt(input: {
     };
   }
 
-  // 3) Line pool rotation (sticky → weighted / gap-aware)
+  // 3) Line pool — used as Drop Cowboy forwarding_number (or BYOC caller_id)
   const line = pickLine(input.lines, input.lead.phoneE164, {
     now: input.now,
     stickyLineId: input.stickyLineId,
@@ -126,35 +124,23 @@ export async function runAttempt(input: {
     return { status: "SKIPPED", reason: "NO_LINE_CAPACITY" };
   }
 
-  // 4) Audio — reuse static URL, or generate once via ElevenLabs
-  let audioUrl = input.campaign.audioUrl ?? null;
-  if (!audioUrl) {
-    if (!input.voice || !input.campaign.elevenVoiceId) {
-      return {
-        status: "FAILED",
-        error: "No audioUrl and no ElevenLabs voice configured",
-      };
-    }
-    const script = renderScript(input.campaign.scriptTemplate, {
-      first_name: input.lead.firstName,
-      last_name: input.lead.lastName,
-      company: input.lead.company,
-    });
-    const rendered = await input.voice.render({
-      text: script,
-      voiceExternalId: input.campaign.elevenVoiceId,
-      format: "mp3",
-    });
-    audioUrl = rendered.audioUrl;
+  const recordingId = input.campaign.recordingId?.trim() || undefined;
+  const audioUrl = input.campaign.audioUrl?.trim() || undefined;
+  if (!recordingId && !audioUrl) {
+    return {
+      status: "FAILED",
+      error: "No Drop Cowboy recording_id (or audio URL) configured",
+    };
   }
 
-  // 5) Deliver via Drop.co (or whatever provider is injected)
+  // 4) Deliver via Drop Cowboy (or injected provider)
   const sent = await input.delivery.send({
     toE164: input.lead.phoneE164,
     fromE164: line.e164,
+    recordingId,
     audioUrl,
-    foreignId:
-      input.foreignId ?? `${input.campaign.id}_${input.lead.id}`,
+    postalCode: input.lead.postalCode?.trim() || undefined,
+    foreignId: input.foreignId ?? `${input.campaign.id}_${input.lead.id}`,
     callbackUrl: input.callbackUrl,
   });
 
@@ -170,6 +156,7 @@ export async function runAttempt(input: {
     lineId: line.id,
     providerMessageId: sent.providerMessageId,
     audioUrl,
+    recordingId,
     timezone: window.timezone,
     costEstimateUsd: sent.costEstimateUsd,
   };

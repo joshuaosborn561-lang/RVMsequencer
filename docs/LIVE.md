@@ -28,10 +28,12 @@ Add Redis in Railway: **New → Database → Redis**, then variable reference `R
 | `DATA_DIR` | Yes | `/data` |
 | `CRON_SECRET` | Yes | Same value cron sends as `x-cron-secret` |
 | `NEXT_PUBLIC_APP_URL` | Yes | `https://rvm-drop-production.up.railway.app` |
-| `DROP_CO_API_KEY` | Yes | Drop.co PAYG |
-| `DROP_CO_CAMPAIGN_TOKEN` | Or create per campaign | Campaign token for deposits |
-| `ELEVENLABS_API_KEY` | Yes (if no static audio URL) | Generate-once voice |
-| `ELEVENLABS_DEFAULT_VOICE_ID` | Recommended | PVC / Multilingual voice |
+| `DROPCOWBOY_TEAM_ID` | Yes | Drop Cowboy API Settings |
+| `DROPCOWBOY_SECRET` | Yes | Drop Cowboy API Settings |
+| `DROPCOWBOY_BRAND_ID` | Yes | Trust Center brand GUID |
+| `DROPCOWBOY_RECORDING_ID` | Or per campaign | Default recording GUID |
+| `DROPCOWBOY_POOL_ID` | Optional | Private number pool |
+| `DROPCOWBOY_BYOC_CALLER_ID` | Optional (`1`) | Send Twilio DID as `caller_id` (BYOC only) |
 | `DNC_PROJECT_API_TOKEN` | Recommended | External DNC scrub |
 | `TWILIO_ACCOUNT_SID` | Yes for inbound | Number inventory + webhooks |
 | `TWILIO_AUTH_TOKEN` | Yes for inbound | Signature validation |
@@ -51,19 +53,20 @@ Add Redis in Railway: **New → Database → Redis**, then variable reference `R
 
 ---
 
-## 4. Drop.co status → ledger
+## 4. Drop Cowboy status → ledger
 
-Point Drop.co (or your bridge) at:
+Point Drop Cowboy `callback_url` (per send or dashboard default) at:
 
-`POST {APP}/api/webhooks/rvm-status`  
-Header: `Authorization: Bearer $RVM_STATUS_WEBHOOK_SECRET`
+`POST {APP}/api/webhooks/rvm-status?secret=$RVM_STATUS_WEBHOOK_SECRET`
 
-Body example:
+Native Drop Cowboy payload is accepted (`drop_id`, `foreign_id`, `status: success|failure`, `reason`).
+
+Normalized body example:
 
 ```json
 {
-  "provider": "DROP_CO",
-  "ActivityToken": "<provider id>",
+  "provider": "DROP_COWBOY",
+  "providerMessageId": "<drop_id>",
   "foreignId": "<campaignId>_<leadId>_step1",
   "status": "delivered"
 }

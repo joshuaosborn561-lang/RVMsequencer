@@ -31,6 +31,15 @@ export function createDropCoProvider(config: DropCoConfig): RvmDeliveryProvider 
         };
       }
 
+      if (!input.audioUrl) {
+        return {
+          ok: false,
+          status: "failed",
+          errorCode: "NO_AUDIO_URL",
+          errorDetail: "Drop.co requires fileurl",
+        };
+      }
+
       const phone = input.toE164.replace(/\D/g, "").replace(/^1/, "");
       const qs = new URLSearchParams({
         key: config.apiKey,

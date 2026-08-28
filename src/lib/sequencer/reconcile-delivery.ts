@@ -5,6 +5,7 @@ import {
   updateLead,
 } from "@/lib/store/db";
 import {
+  cancelSubsequentSteps,
   updateScheduledSendByIdempotency,
   updateScheduledSendByProviderMsg,
 } from "@/lib/store/scheduled";
@@ -27,6 +28,7 @@ export type ProviderDeliveryEvent = {
 
 /**
  * Map provider status webhooks onto the attempt / scheduled-send ledger.
+ * Failed / rejected / human_answered cancel later sequence touches for that lead.
  */
 export async function reconcileProviderDelivery(
   event: ProviderDeliveryEvent,
@@ -83,6 +85,12 @@ export async function reconcileProviderDelivery(
       lastError: event.errorDetail ?? event.status,
       status: "FAILED",
     });
+    await cancelSubsequentSteps({
+      campaignId: row.campaignId,
+      leadId: row.leadId,
+      afterStepPosition: row.stepPosition,
+      reason: `PRIOR_STEP_${event.status.toUpperCase()}`,
+    });
   }
 
   if (event.status === "human_answered") {
@@ -91,6 +99,12 @@ export async function reconcileProviderDelivery(
     if (lead) {
       await updateLead(lead.id, { lastError: "HUMAN_ANSWERED" });
     }
+    await cancelSubsequentSteps({
+      campaignId: row.campaignId,
+      leadId: row.leadId,
+      afterStepPosition: row.stepPosition,
+      reason: "PRIOR_STEP_HUMAN_ANSWERED",
+    });
   }
 
   return { ok: true, updated: row };

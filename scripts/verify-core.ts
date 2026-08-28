@@ -265,8 +265,10 @@ async function main() {
     "../src/lib/store/scheduled-types"
   );
 
+  const campId = `cmp_verify_${Date.now()}`;
+  const leadId = `lead_verify_${Date.now()}`;
   const camp = {
-    id: "cmp_verify",
+    id: campId,
     name: "V",
     status: "ACTIVE" as const,
     createdAt: new Date().toISOString(),
@@ -298,7 +300,7 @@ async function main() {
     },
   };
   const lead = {
-    id: "lead_verify",
+    id: leadId,
     campaignId: camp.id,
     phoneE164: "+14155550123",
     custom: {},
@@ -313,7 +315,10 @@ async function main() {
     now: new Date("2026-08-01T12:00:00.000Z"),
   });
   assert.ok(sched.created >= 2);
-  assert.equal(stepIdempotencyKey(camp.id, lead.id, 2), "cmp_verify_lead_verify_step2");
+  assert.equal(
+    stepIdempotencyKey(camp.id, lead.id, 2),
+    `${campId}_${leadId}_step2`,
+  );
 
   const claimed = await claimScheduledSends({
     campaignId: camp.id,
@@ -323,6 +328,35 @@ async function main() {
   });
   assert.equal(claimed.length, 1);
   assert.equal(claimed[0]?.stepPosition, 1);
+
+  // Step 2 is calendar-due but must NOT claim until step 1 is delivered
+  const tooSoon = await claimScheduledSends({
+    campaignId: camp.id,
+    limit: 10,
+    owner: "verify2",
+    now: new Date("2026-08-05T12:00:00.000Z"),
+  });
+  assert.equal(
+    tooSoon.filter((s) => s.stepPosition === 2).length,
+    0,
+    "step 2 must wait for prior delivery",
+  );
+
+  const { updateScheduledSend } = await import("../src/lib/store/scheduled");
+  assert.ok(claimed[0]?.id);
+  await updateScheduledSend(claimed[0]!.id, {
+    status: "SENT",
+    deliveryStatus: "delivered",
+  });
+
+  const afterDelivered = await claimScheduledSends({
+    campaignId: camp.id,
+    limit: 10,
+    owner: "verify3",
+    now: new Date("2026-08-05T12:00:00.000Z"),
+  });
+  assert.equal(afterDelivered.length, 1);
+  assert.equal(afterDelivered[0]?.stepPosition, 2);
 
   assert.equal(
     poolExhausted([

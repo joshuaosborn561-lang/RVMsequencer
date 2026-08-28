@@ -34,6 +34,44 @@ export type ScheduledSendRecord = {
   updatedAt: string;
 };
 
+/** Provider outcomes that unlock the next sequence touch. */
+export const DELIVERY_UNLOCK_STATUSES = ["delivered", "sent"] as const;
+
+export function priorStepUnlocksNext(
+  deliveryStatus:
+    | ScheduledSendRecord["deliveryStatus"]
+    | string
+    | null
+    | undefined,
+): boolean {
+  return deliveryStatus === "delivered" || deliveryStatus === "sent";
+}
+
+/** Prior step is terminal — later touches must not send. */
+export function priorStepBlocksSequence(
+  prior:
+    | Pick<ScheduledSendRecord, "status" | "deliveryStatus">
+    | null
+    | undefined,
+): boolean {
+  if (!prior) return true;
+  if (
+    prior.status === "FAILED" ||
+    prior.status === "CANCELLED" ||
+    prior.status === "SUPPRESSED"
+  ) {
+    return true;
+  }
+  if (
+    prior.deliveryStatus === "failed" ||
+    prior.deliveryStatus === "rejected" ||
+    prior.deliveryStatus === "human_answered"
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export function stepIdempotencyKey(
   campaignId: string,
   leadId: string,

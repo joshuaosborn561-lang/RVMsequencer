@@ -94,6 +94,7 @@ Statuses: `queued` | `sent` | `delivered` | `failed` | `rejected` | `human_answe
 - Multi-replica safe: claims use **Postgres `FOR UPDATE SKIP LOCKED`**
 - No double-drop on the same `campaign_lead_step` idempotency key
 - Line pool exhaustion **rebalances** `runAt` forward
-- Step 2+ fires after `delayDays` with **sticky DID**
+- Step 2+ fires after `delayDays` **and** prior touch `deliveryStatus` is `delivered`/`sent` (webhook); sticky DID
+- Failed / rejected / human_answered prior touches **cancel** later steps
 - Org daily hard cap shared via **Redis** (Postgres/file fallback)
 - Provider webhooks update delivery status on the attempt ledger

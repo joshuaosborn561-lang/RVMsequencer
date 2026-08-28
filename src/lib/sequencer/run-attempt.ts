@@ -36,6 +36,14 @@ export type RunAttemptResult =
       recordingId?: string;
       timezone: string;
       costEstimateUsd?: number;
+      /** Immediate provider outcome (unlocks next touch when delivered|sent). */
+      deliveryStatus?:
+        | "queued"
+        | "sent"
+        | "delivered"
+        | "failed"
+        | "rejected"
+        | "human_answered";
     }
   | {
       status: "SKIPPED";
@@ -159,5 +167,6 @@ export async function runAttempt(input: {
     recordingId,
     timezone: window.timezone,
     costEstimateUsd: sent.costEstimateUsd,
+    deliveryStatus: sent.status,
   };
 }

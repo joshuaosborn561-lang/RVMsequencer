@@ -35,6 +35,7 @@ import {
   sharedOrgDailyCap,
 } from "@/lib/store/org-counters";
 import {
+  cancelSubsequentSteps,
   claimScheduledSends,
   countDueScheduled,
   countPendingScheduled,
@@ -344,7 +345,7 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
             status: "SENT",
             providerMsgId: result.providerMessageId,
             stickyLineId: result.lineId,
-            deliveryStatus: "queued",
+            deliveryStatus: result.deliveryStatus ?? "queued",
           });
           await advanceLeadAfterStep(
             lead,
@@ -430,6 +431,13 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
             await updateScheduledSend(sch.id, {
               status: "SUPPRESSED",
               lastError: "MAX_ATTEMPTS",
+              deliveryStatus: "failed",
+            });
+            await cancelSubsequentSteps({
+              campaignId: campaign.id,
+              leadId: lead.id,
+              afterStepPosition: sch.stepPosition,
+              reason: "PRIOR_STEP_MAX_ATTEMPTS",
             });
             await updateLead(lead.id, {
               status: "SUPPRESSED",

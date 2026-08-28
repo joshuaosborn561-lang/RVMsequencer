@@ -3,6 +3,8 @@ import { getPrisma, postgresEnabled } from "@/lib/db/prisma";
 import { STALE_SENDING_MS } from "@/lib/hardening/constants";
 import type { CampaignRecord, LeadRecord } from "@/lib/store/types";
 import {
+  priorStepBlocksSequence,
+  priorStepUnlocksNext,
   stepIdempotencyKey,
   type ScheduledSendRecord,
   type ScheduledSendStatus,
@@ -188,6 +190,20 @@ export async function claimScheduledSends(input: {
   return claimFile(input.campaignId, input.limit, input.owner, now);
 }
 
+function findPriorStep(
+  sends: ScheduledSendRecord[],
+  campaignId: string,
+  leadId: string,
+  stepPosition: number,
+): ScheduledSendRecord | undefined {
+  return sends.find(
+    (s) =>
+      s.campaignId === campaignId &&
+      s.leadId === leadId &&
+      s.stepPosition === stepPosition - 1,
+  );
+}
+
 async function claimPostgres(
   prisma: NonNullable<ReturnType<typeof getPrisma>>,
   campaignId: string,
@@ -212,15 +228,45 @@ async function claimPostgres(
     },
   });
 
+  // Cancel later touches when prior step already failed / never deliverable
+  await prisma.$executeRaw`
+    UPDATE "ScheduledSend" AS later
+    SET status = 'CANCELLED',
+        "lastError" = 'PRIOR_STEP_NOT_DELIVERED',
+        "updatedAt" = ${now}
+    FROM "ScheduledSend" AS prior
+    WHERE later."campaignId" = ${campaignId}
+      AND later.status IN ('PENDING', 'CLAIMED', 'FAILED', 'SKIPPED')
+      AND later."stepPosition" > 1
+      AND prior."campaignId" = later."campaignId"
+      AND prior."leadId" = later."leadId"
+      AND prior."stepPosition" = later."stepPosition" - 1
+      AND (
+        prior.status IN ('FAILED', 'CANCELLED', 'SUPPRESSED')
+        OR prior."deliveryStatus" IN ('failed', 'rejected', 'human_answered')
+      )
+  `;
+
   const claimed = await prisma.$transaction(async (tx) => {
+    // Step 1 due → eligible; step N+ requires prior deliveryStatus delivered|sent
     const due = await tx.$queryRaw<Array<{ id: string }>>`
-      SELECT id FROM "ScheduledSend"
-      WHERE "campaignId" = ${campaignId}
-        AND status = 'PENDING'
-        AND "runAt" <= ${now}
-      ORDER BY "runAt" ASC
+      SELECT s.id FROM "ScheduledSend" s
+      WHERE s."campaignId" = ${campaignId}
+        AND s.status = 'PENDING'
+        AND s."runAt" <= ${now}
+        AND (
+          s."stepPosition" <= 1
+          OR EXISTS (
+            SELECT 1 FROM "ScheduledSend" p
+            WHERE p."campaignId" = s."campaignId"
+              AND p."leadId" = s."leadId"
+              AND p."stepPosition" = s."stepPosition" - 1
+              AND p."deliveryStatus" IN ('delivered', 'sent')
+          )
+        )
+      ORDER BY s."runAt" ASC
       LIMIT ${limit}
-      FOR UPDATE SKIP LOCKED
+      FOR UPDATE OF s SKIP LOCKED
     `;
     if (due.length === 0) return [];
     const ids = due.map((d) => d.id);
@@ -249,8 +295,9 @@ async function claimFile(
     const q = await readFileQueue();
     const claimed: ScheduledSendRecord[] = [];
     const nowMs = now.getTime();
+    const iso = now.toISOString();
+
     for (const s of q.sends) {
-      if (claimed.length >= limit) break;
       if (s.campaignId !== campaignId) continue;
       if (s.status === "CLAIMED" && s.claimedAt) {
         if (nowMs - Date.parse(s.claimedAt) >= STALE_SENDING_MS) {
@@ -260,18 +307,98 @@ async function claimFile(
           s.lastError = "STALE_CLAIM_RECLAIMED";
         }
       }
+    }
+
+    // Cancel later touches blocked by a failed prior
+    for (const s of q.sends) {
+      if (s.campaignId !== campaignId) continue;
+      if (s.stepPosition <= 1) continue;
+      if (
+        s.status === "SENT" ||
+        s.status === "CANCELLED" ||
+        s.status === "SUPPRESSED"
+      ) {
+        continue;
+      }
+      const prior = findPriorStep(q.sends, s.campaignId, s.leadId, s.stepPosition);
+      if (priorStepBlocksSequence(prior)) {
+        s.status = "CANCELLED";
+        s.lastError = "PRIOR_STEP_NOT_DELIVERED";
+        s.updatedAt = iso;
+      }
+    }
+
+    for (const s of q.sends) {
+      if (claimed.length >= limit) break;
+      if (s.campaignId !== campaignId) continue;
       if (s.status !== "PENDING") continue;
       if (Date.parse(s.runAt) > nowMs) continue;
+
+      if (s.stepPosition > 1) {
+        const prior = findPriorStep(
+          q.sends,
+          s.campaignId,
+          s.leadId,
+          s.stepPosition,
+        );
+        if (!priorStepUnlocksNext(prior?.deliveryStatus)) {
+          continue;
+        }
+      }
+
       s.status = "CLAIMED";
       s.claimOwner = owner;
-      s.claimedAt = now.toISOString();
+      s.claimedAt = iso;
       s.attemptCount += 1;
-      s.updatedAt = now.toISOString();
+      s.updatedAt = iso;
       claimed.push({ ...s });
     }
     await writeFileQueue(q);
     return claimed;
   });
+}
+
+/**
+ * Cancel PENDING/CLAIMED/FAILED/SKIPPED steps after `afterStepPosition`
+ * for a lead in a campaign (used when prior delivery fails).
+ */
+export async function cancelSubsequentSteps(input: {
+  campaignId: string;
+  leadId: string;
+  afterStepPosition: number;
+  reason: string;
+}): Promise<number> {
+  let n = 0;
+  const { campaignId, leadId, afterStepPosition, reason } = input;
+
+  await withStoreLock(async () => {
+    const q = await readFileQueue();
+    for (const s of q.sends) {
+      if (s.campaignId !== campaignId || s.leadId !== leadId) continue;
+      if (s.stepPosition <= afterStepPosition) continue;
+      if (s.status === "SENT" || s.status === "CANCELLED") continue;
+      s.status = "CANCELLED";
+      s.lastError = reason;
+      s.updatedAt = new Date().toISOString();
+      n += 1;
+    }
+    await writeFileQueue(q);
+  });
+
+  const prisma = getPrisma();
+  if (prisma) {
+    const res = await prisma.scheduledSend.updateMany({
+      where: {
+        campaignId,
+        leadId,
+        stepPosition: { gt: afterStepPosition },
+        status: { in: ["PENDING", "CLAIMED", "FAILED", "SKIPPED"] },
+      },
+      data: { status: "CANCELLED", lastError: reason },
+    });
+    n = Math.max(n, res.count);
+  }
+  return n;
 }
 
 export async function updateScheduledSend(

@@ -50,10 +50,13 @@ Then `campaigns_update` with `schedule` (+ `ramp` if used) and confirm the summa
 - `preferences_update` with the choices they just made (`defaultLineIds`, `defaultAudioUrl`, `defaultNewLeadsPerDay`, `defaultSchedule`, `lastCampaignId`, etc.).
 
 ### 6) After launch
-- They can ask status anytime: `campaigns_get`, `inbox_list`.
+- They can ask status anytime: `campaigns_get`, `inbox_list`, `audit_list`.
 - Pause: `campaigns_update` `{ status: "PAUSED" }`.
 - Suppress / DNC: `suppress_phone`.
 - From-number spam check: `reputation_check` `{ force: true }` (also runs automatically once/day via sequencer cron). Report any FLAGGED / quarantined DIDs.
+- Mark DIDs FCR-registered after Free Caller Registry / Voice Integrity: `lines_update` `{ e164, registeredFcr: true }`. Optionally enforce with `settings_update` `{ requireFcrRegistration: true }`.
+- Seed/canary numbers: `seeds_upsert` then daily inject verifies delivery.
+- Quiet hours: `quiet_hours_list` (federal + state clamps auto-applied to send windows).
 
 ## Launch blockers (tell user clearly)
 Need all of: sendable leads, ≥1 line, audioUrl, sendDays. API returns `launch_blocked` with `blockers`.
@@ -62,3 +65,4 @@ Need all of: sendable leads, ≥1 line, audioUrl, sendDays. API returns `launch_
 - Invent Twilio numbers not in the pool / provided by the user.
 - Launch without an explicit “yes”.
 - Claim TTS exists (removed) — audio must be a real file/URL.
+- Enable `requireFcrRegistration` until DIDs are actually registered.

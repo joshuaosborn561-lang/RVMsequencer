@@ -5,7 +5,7 @@
  * 3) global workspace suppression
  * 4) client-scoped exclusion (optional list)
  * 5) callback / prior disposition halt (via global suppress source CALLBACK)
- * 6) max attempts per contact per UTC day (default 3)
+ * 6) max attempts per contact per UTC day (default 2)
  *
  * External scrub (The DNC Project etc.) runs separately after this passes.
  */
@@ -39,7 +39,7 @@ export type SuppressionOrderResult =
   | { blocked: false }
   | { blocked: true; reason: SuppressionReason; detail?: string };
 
-export const DEFAULT_MAX_ATTEMPTS_PER_CONTACT_PER_DAY = 3;
+export const DEFAULT_MAX_ATTEMPTS_PER_CONTACT_PER_DAY = 2;
 
 export function evaluateSuppressionOrder(
   input: SuppressionOrderInput,

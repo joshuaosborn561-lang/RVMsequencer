@@ -189,14 +189,14 @@ export type InboxMessage = {
 export type WorkspaceSettings = {
   callForwardToE164?: string;
   callForwardTimeoutSec?: number;
-  /** Pool-wide dual cap (org daily deposits). Default 300. */
+  /** @deprecated Unused — per-line dailyCap is the volume limit. */
   hardCapDailySends?: number;
   lineMinGapSec?: number;
   /** ISO timestamp of last daily spam/blacklist reputation pass. */
   lastReputationCheckAt?: string;
   /** When true, line picker requires registeredFcr. */
   requireFcrRegistration?: boolean;
-  /** Max attempts per phone per UTC day (default 3). */
+  /** Max attempts per phone per UTC day (default 2). */
   maxAttemptsPerContactPerDay?: number;
   /** How many seed drops to inject per ACTIVE campaign per day. */
   seedInjectPerCampaignPerDay?: number;

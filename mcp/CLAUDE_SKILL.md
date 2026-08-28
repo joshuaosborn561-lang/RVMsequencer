@@ -37,7 +37,8 @@ Ask one by one (offer defaults from preferences):
 - Send window hours → `sendWindowStart` / `sendWindowEnd` (default 9–20)
 - Days → `sendDays` (default Mon–Fri `[1,2,3,4,5]`)
 - Timezone → `RECIPIENT_LOCAL` unless they want FIXED
-- Org hard cap → `settings_update` `{ hardCapDailySends }`
+- Org hard cap → not used (per-line dailyCap only)
+- Max 2 attempts per contact per day (built-in)
 - Optional ramp → `ramp: { enabled, startPerDay, incrementPerDay, ceilingPerDay }`
 - Call forward for callbacks → `settings_update` `{ callForwardToE164 }`
 

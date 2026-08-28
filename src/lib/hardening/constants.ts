@@ -1,13 +1,16 @@
 /** Warmbly-inspired safety defaults for RVM Drop. */
 
-/** Org-wide hard cap on RVM deposits per UTC day (pool-wide dual-cap). */
-export const HARD_CAP_DAILY_SENDS = 300;
+/**
+ * @deprecated Pool-wide hard cap removed — per-line dailyCap is the limit.
+ * Kept only so older settings rows / counters don't break.
+ */
+export const HARD_CAP_DAILY_SENDS = Number.MAX_SAFE_INTEGER;
 
 /** Max simultaneously ACTIVE campaigns. */
 export const HARD_CAP_ACTIVE_CAMPAIGNS = 50;
 
 /** Max RVM attempts to the same phone per UTC day. */
-export const MAX_ATTEMPTS_PER_CONTACT_PER_DAY = 3;
+export const MAX_ATTEMPTS_PER_CONTACT_PER_DAY = 2;
 
 /** Soft jitter fallback when pacing can't be derived (seconds). */
 export const SEND_JITTER_MAX_SEC = 90;

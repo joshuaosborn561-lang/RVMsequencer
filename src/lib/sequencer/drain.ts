@@ -41,9 +41,7 @@ import {
   updateLead,
 } from "@/lib/store/db";
 import {
-  getSharedOrgSendsToday,
   incrementSharedOrgSends,
-  sharedOrgDailyCap,
 } from "@/lib/store/org-counters";
 import {
   cancelSubsequentSteps,
@@ -112,8 +110,6 @@ export async function drainActiveCampaigns(
   const now = new Date();
   const settings = await getSettings();
   const minGap = settings.lineMinGapSec ?? 600;
-  const orgCap = await sharedOrgDailyCap();
-  let orgSent = await getSharedOrgSendsToday(now);
   const immediate = Boolean(opts?.immediate);
   const requireFcr = settings.requireFcrRegistration === true;
   const maxPerDay =
@@ -150,7 +146,6 @@ export async function drainActiveCampaigns(
 
   for (const campaign of campaigns) {
     if (out.claimed >= limit) break;
-    if (orgSent >= orgCap) break;
 
     const leased = await acquireCampaignLease(campaign.id, owner, now);
     if (!leased) {
@@ -207,7 +202,7 @@ export async function drainActiveCampaigns(
       const remainingToday = Math.max(0, budget - sentToday);
       if (remainingToday <= 0) continue;
 
-      const batch = Math.min(limit - out.claimed, remainingToday, orgCap - orgSent);
+      const batch = Math.min(limit - out.claimed, remainingToday);
       const claimed = await claimScheduledSends({
         campaignId: campaign.id,
         limit: batch,
@@ -374,7 +369,7 @@ export async function drainActiveCampaigns(
         if (result.status === "SENT") {
           campaignSent += 1;
           out.sent += 1;
-          orgSent = await incrementSharedOrgSends(now);
+          void incrementSharedOrgSends(now);
           await bumpLineSent(result.lineId, now);
           await bumpContactAttempt(lead.phoneE164, now);
           await appendAudit({

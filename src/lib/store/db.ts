@@ -70,7 +70,10 @@ const defaultStore = (): StoreShape => ({
   campaigns: [],
   leads: [],
   inbox: [],
-  settings: { callForwardTimeoutSec: 30, hardCapDailySends: 300 },
+  settings: {
+    callForwardTimeoutSec: 30,
+    maxAttemptsPerContactPerDay: 2,
+  },
   preferences: {},
   audioAssets: [],
   suppressions: [],

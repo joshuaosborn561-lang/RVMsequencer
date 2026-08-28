@@ -25,7 +25,6 @@ export default function SettingsPage() {
   const [section, setSection] = useState<Section>("forwarding");
   const [phone, setPhone] = useState("");
   const [timeoutSec, setTimeoutSec] = useState("30");
-  const [hardCap, setHardCap] = useState("1000");
   const [minGap, setMinGap] = useState("600");
   const [effective, setEffective] = useState<{
     callForwardToE164: string | null;
@@ -39,7 +38,6 @@ export default function SettingsPage() {
     const data = await res.json();
     setPhone(data.settings?.callForwardToE164 ?? "");
     setTimeoutSec(String(data.settings?.callForwardTimeoutSec ?? 30));
-    setHardCap(String(data.settings?.hardCapDailySends ?? 1000));
     setMinGap(String(data.settings?.lineMinGapSec ?? 600));
     setEffective(data.effective);
   }, []);
@@ -205,16 +203,6 @@ export default function SettingsPage() {
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <label className="flex flex-col gap-1.5 text-sm">
                   <span className="text-[var(--muted)]">
-                    Org daily hard cap (sends)
-                  </span>
-                  <input
-                    className="sl-input"
-                    value={hardCap}
-                    onChange={(e) => setHardCap(e.target.value)}
-                  />
-                </label>
-                <label className="flex flex-col gap-1.5 text-sm">
-                  <span className="text-[var(--muted)]">
                     Line min gap (seconds)
                   </span>
                   <input
@@ -223,6 +211,10 @@ export default function SettingsPage() {
                     onChange={(e) => setMinGap(e.target.value)}
                   />
                 </label>
+                <p className="sm:col-span-2 text-sm text-[var(--muted)]">
+                  Volume is limited per line daily cap (no org-wide pool hard
+                  cap). Max 2 attempts per contact per day.
+                </p>
               </div>
               <button
                 type="button"
@@ -230,8 +222,8 @@ export default function SettingsPage() {
                 className="sl-btn sl-btn-primary mt-4"
                 onClick={() =>
                   void save({
-                    hardCapDailySends: Number(hardCap) || 1000,
                     lineMinGapSec: Number(minGap) || 600,
+                    maxAttemptsPerContactPerDay: 2,
                   })
                 }
               >

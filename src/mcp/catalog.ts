@@ -370,10 +370,16 @@ export const mcpTools: McpToolDef[] = [
       properties: {
         callForwardToE164: { type: ["string", "null"] },
         callForwardTimeoutSec: { type: "number" },
-        hardCapDailySends: { type: "number" },
+        hardCapDailySends: {
+          type: "number",
+          description: "Deprecated — ignored; per-line dailyCap limits volume",
+        },
         lineMinGapSec: { type: "number" },
         requireFcrRegistration: { type: "boolean" },
-        maxAttemptsPerContactPerDay: { type: "integer" },
+        maxAttemptsPerContactPerDay: {
+          type: "integer",
+          description: "Max RVM attempts per phone per UTC day (default 2)",
+        },
         seedInjectPerCampaignPerDay: { type: "integer" },
       },
     },

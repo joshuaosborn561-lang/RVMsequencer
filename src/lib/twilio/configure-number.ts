@@ -1,6 +1,9 @@
 /**
- * Point a Twilio IncomingPhoneNumber at RVM Drop voice/SMS webhooks.
+ * Point a Twilio IncomingPhoneNumber at RVM Drop webhooks / call-forward.
  * @see https://www.twilio.com/docs/phone-numbers/api/incomingphonenumber-resource
+ *
+ * VoiceUrl uses Twilio Twimlets forward so callbacks always ring through even
+ * if our app webhook is down. StatusCallback + SmsUrl still hit RVM Drop.
  */
 export async function configureTwilioNumberWebhooks(input: {
   phoneNumberSid?: string;
@@ -16,7 +19,11 @@ export async function configureTwilioNumberWebhooks(input: {
     return { ok: false, error: "NEXT_PUBLIC_APP_URL_MISSING" };
   }
 
-  const voiceUrl = `${appUrl}/api/webhooks/twilio/inbound`;
+  const { resolveCallForwardTo } = await import("@/lib/store/db");
+  const forward = await resolveCallForwardTo();
+  const forwardDigits = (forward.e164 || "").replace(/\D/g, "") || "12149107558";
+  const twimlet = `http://twimlets.com/forward?PhoneNumber=${forwardDigits}`;
+  const inboundUrl = `${appUrl}/api/webhooks/twilio/inbound`;
   const statusUrl = `${appUrl}/api/webhooks/twilio/status`;
   const auth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
 
@@ -42,13 +49,15 @@ export async function configureTwilioNumberWebhooks(input: {
   if (!sid) return { ok: false, error: "SID_OR_E164_REQUIRED" };
 
   const body = new URLSearchParams({
-    VoiceUrl: voiceUrl,
-    VoiceMethod: "POST",
-    SmsUrl: voiceUrl,
+    // Reliable PSTN answer → dial your phone (Twilio IncomingPhoneNumber VoiceUrl)
+    VoiceUrl: twimlet,
+    VoiceMethod: "GET",
+    VoiceFallbackUrl: inboundUrl,
+    VoiceFallbackMethod: "POST",
+    SmsUrl: inboundUrl,
     SmsMethod: "POST",
     StatusCallback: statusUrl,
     StatusCallbackMethod: "POST",
-    // Clear TwiML App / Elastic SIP trunk so VoiceUrl is honored
     VoiceApplicationSid: "",
     TrunkSid: "",
   });

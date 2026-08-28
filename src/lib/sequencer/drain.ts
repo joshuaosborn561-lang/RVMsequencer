@@ -354,6 +354,27 @@ export async function drainActiveCampaigns(
             result.lineId,
             result.providerMessageId,
           );
+          const fromDid =
+            lines.find((l) => l.id === result.lineId)?.e164 ??
+            campaign.lineIds[0];
+          void import("@/lib/supabase/rvm-sync")
+            .then(({ upsertRvmDrop }) =>
+              upsertRvmDrop({
+                campaign_id: campaign.id,
+                campaign_name: campaign.name,
+                lead_id: lead.id,
+                lead_phone: lead.phoneE164,
+                from_did: fromDid,
+                audio_url: step.audioUrl ?? campaign.audioUrl,
+                provider: "SLYBROADCAST",
+                provider_session_id: result.providerMessageId,
+                queued_at: now.toISOString(),
+                dial_status: "Pending",
+                app_lead_status: "SENT",
+                raw: { drain: true },
+              }),
+            )
+            .catch((err) => console.error("[supabase] upsertRvmDrop failed", err));
         } else if (result.status === "SKIPPED") {
           campaignSkipped += 1;
           out.skipped += 1;

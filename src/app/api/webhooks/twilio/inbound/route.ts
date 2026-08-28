@@ -67,17 +67,25 @@ export async function POST(req: Request) {
 
   if (twilioAuthConfigured() && contentType.includes("application/x-www-form-urlencoded")) {
     const signature = req.headers.get("x-twilio-signature");
-    const url = process.env.NEXT_PUBLIC_APP_URL
+    const configuredUrl = process.env.NEXT_PUBLIC_APP_URL
       ? `${process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")}/api/webhooks/twilio/inbound`
-      : req.url;
-    const ok = isValidTwilioSignature({
-      authToken: process.env.TWILIO_AUTH_TOKEN!,
-      signature,
-      url,
-      params,
-    });
-    if (!ok && process.env.NODE_ENV === "production") {
-      return new NextResponse("invalid signature", { status: 403 });
+      : "";
+    const candidates = [configuredUrl, req.url].filter(Boolean);
+    const ok = candidates.some((url) =>
+      isValidTwilioSignature({
+        authToken: process.env.TWILIO_AUTH_TOKEN!,
+        signature,
+        url,
+        params,
+      }),
+    );
+    // Fail-open: still forward so callbacks ring through; log bad signatures.
+    if (!ok) {
+      console.warn("[twilio] invalid signature — still forwarding", {
+        from,
+        to,
+        callSid,
+      });
     }
   }
 
@@ -135,6 +143,21 @@ export async function POST(req: Request) {
         { headers: { "content-type": "text/xml" } },
       );
     }
+
+    void import("@/lib/supabase/rvm-sync")
+      .then(({ insertRvmCallback }) =>
+        insertRvmCallback({
+          call_sid: callSid || undefined,
+          from_phone: from,
+          to_did: to,
+          forward_to: forward.e164 ?? undefined,
+          channel: "VOICE_CALLBACK",
+          category: "CALLBACK",
+          body: note,
+          raw: { params },
+        }),
+      )
+      .catch((err) => console.error("[supabase] insertRvmCallback failed", err));
 
     return new NextResponse(
       dialForwardTwiml({

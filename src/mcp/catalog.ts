@@ -30,6 +30,7 @@ export const ignoreRoutes: string[] = [
   "src/app/api/webhooks/twilio/status/route.ts",
   "src/app/api/voice/render/route.ts", // TTS removed
   "src/app/api/mcp/route.ts", // remote MCP endpoint itself
+  "src/app/api/supabase/refresh-outcomes/route.ts", // cron helper; covered by sequencer_drain ops
 ];
 
 export const mcpTools: McpToolDef[] = [

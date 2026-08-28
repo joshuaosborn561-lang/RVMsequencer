@@ -92,13 +92,17 @@ function stepFor(
  * Hardened multi-step drain: SKIP LOCKED scheduled sends, leases, suppression,
  * line spacing, sticky DID, ramp, org cap, rebalance, auto-pause.
  */
-export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
+export async function drainActiveCampaigns(
+  limit = 25,
+  opts?: { immediate?: boolean },
+): Promise<DrainResult> {
   const owner = `drain_${randomUUID().slice(0, 8)}`;
   const now = new Date();
   const settings = await getSettings();
   const minGap = settings.lineMinGapSec ?? 600;
   const orgCap = await sharedOrgDailyCap();
   let orgSent = await getSharedOrgSendsToday(now);
+  const immediate = Boolean(opts?.immediate);
 
   let campaigns = (await listCampaigns()).filter((c) => c.status === "ACTIVE");
   if (campaigns.length > HARD_CAP_ACTIVE_CAMPAIGNS) {
@@ -221,8 +225,9 @@ export async function drainActiveCampaigns(limit = 25): Promise<DrainResult> {
 
         const jittered = humanizeSendAt(now, {
           salt: `${sch.leadId}:${sch.stepPosition}`,
+          maxJitterSec: immediate ? 0 : undefined,
         });
-        if (jittered.getTime() > now.getTime() + 5_000) {
+        if (!immediate && jittered.getTime() > now.getTime() + 5_000) {
           await deferScheduledSend(sch.id, jittered, "JITTER_DEFER");
           campaignSkipped += 1;
           out.skipped += 1;

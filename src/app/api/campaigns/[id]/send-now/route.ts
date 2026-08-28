@@ -7,7 +7,11 @@ import {
   listLeads,
   updateCampaign,
 } from "@/lib/store/db";
-import { eagerScheduleCampaign } from "@/lib/store/scheduled";
+import {
+  eagerScheduleCampaign,
+  listScheduledForCampaign,
+  updateScheduledSend,
+} from "@/lib/store/scheduled";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -18,7 +22,7 @@ const Body = z.object({
 
 /**
  * Activate campaign + drain immediately (UI "Drop now" for tests).
- * Uses in-process drain — no cron header required from the browser.
+ * Bypasses humanize jitter so a single test lead actually sends now.
  */
 export async function POST(req: Request, ctx: Ctx) {
   const { id } = await ctx.params;
@@ -63,13 +67,33 @@ export async function POST(req: Request, ctx: Ctx) {
   }
 
   const scheduled = await eagerScheduleCampaign({ campaign, leads });
+
+  // Pull any jitter-deferred rows due now so send-now actually fires.
+  const nowIso = new Date().toISOString();
+  const queue = await listScheduledForCampaign(id);
+  let reset = 0;
+  for (const s of queue) {
+    if (s.status === "SENT" || s.status === "CANCELLED") continue;
+    await updateScheduledSend(s.id, {
+      status: "PENDING",
+      runAt: nowIso,
+      claimOwner: undefined,
+      claimedAt: undefined,
+      lastError: undefined,
+    });
+    reset += 1;
+  }
+
   await reconcileCampaigns();
-  const drain = await drainActiveCampaigns(parsed.data.limit ?? 10);
+  const drain = await drainActiveCampaigns(parsed.data.limit ?? 10, {
+    immediate: true,
+  });
 
   return NextResponse.json({
     ok: true,
     campaign,
     scheduled,
+    resetDue: reset,
     drain,
     delivery: getDefaultDelivery().id,
     scrubbers: getDncScrubbers().length,

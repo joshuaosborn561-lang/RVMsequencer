@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { toE164 } from "@/lib/phone";
 import { ensureLine, listLines, updateLine } from "@/lib/store/db";
+import { configureTwilioNumberWebhooks } from "@/lib/twilio/configure-number";
 
 export async function GET() {
   const lines = await listLines();
@@ -10,6 +11,8 @@ export async function GET() {
 
 const PostBody = z.object({
   e164: z.string().min(7),
+  /** When true (default), set Twilio VoiceUrl/SmsUrl to RVM Drop webhooks */
+  configureVoice: z.boolean().optional(),
 });
 
 export async function POST(req: Request) {
@@ -25,7 +28,11 @@ export async function POST(req: Request) {
     );
   }
   const line = await ensureLine(e164);
-  return NextResponse.json({ line }, { status: 201 });
+  let twilio: Awaited<ReturnType<typeof configureTwilioNumberWebhooks>> | undefined;
+  if (parsed.data.configureVoice !== false) {
+    twilio = await configureTwilioNumberWebhooks({ e164 });
+  }
+  return NextResponse.json({ line, twilio }, { status: 201 });
 }
 
 const PatchBody = z.object({
@@ -40,6 +47,8 @@ const PatchBody = z.object({
   reputationLabel: z
     .enum(["UNFLAGGED", "MIXED_LOW", "MIXED_HIGH", "FLAGGED", "UNKNOWN"])
     .optional(),
+  /** Re-point Twilio VoiceUrl to this app */
+  configureVoice: z.boolean().optional(),
 });
 
 /** Update per-DID daily cap / status (Claude walkthrough uses this). */
@@ -65,5 +74,9 @@ export async function PATCH(req: Request) {
   if (!line) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
-  return NextResponse.json({ line });
+  let twilio: Awaited<ReturnType<typeof configureTwilioNumberWebhooks>> | undefined;
+  if (parsed.data.configureVoice) {
+    twilio = await configureTwilioNumberWebhooks({ e164: line.e164 });
+  }
+  return NextResponse.json({ line, twilio });
 }

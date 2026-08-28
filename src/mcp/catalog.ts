@@ -567,7 +567,7 @@ export const mcpTools: McpToolDef[] = [
   {
     name: "reputation_check",
     description:
-      "Daily spam/blacklist/health check for Twilio from-numbers (DIDs). Uses Hiya when HIYA_API_KEY is set, plus internal callback-rate signal. Auto-quarantines FLAGGED / degrades MIXED_HIGH. Syncs to Supabase rvm_caller_id_numbers + rvm_reputation_checks. Requires cron secret.",
+      "Daily spam/blacklist/health check for Twilio from-numbers (DIDs). Free CallTracer crowd spam score by default; Hiya if HIYA_API_KEY is set; plus internal callback-rate signal. Auto-quarantines FLAGGED / degrades MIXED_HIGH. Syncs to Supabase. Requires cron secret.",
     method: "POST",
     path: "/api/reputation/check",
     body: true,

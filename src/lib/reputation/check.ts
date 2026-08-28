@@ -1,8 +1,10 @@
 /**
  * Daily spam / blacklist checks for RVM "from" numbers (Twilio DIDs).
  *
- * Prefer Hiya Number Reputation API when HIYA_API_KEY is set:
- * https://developer.hiya.com/docs/protect/business-partner-api/endpoints/get-reputation-for-phones
+ * Default (free): CallTracer crowd-sourced spam reports
+ *   GET https://calltracer.io/api/lookup/{digits} — no API key
+ *
+ * Optional (paid): Hiya when HIYA_API_KEY is set — closer to carrier labels
  *
  * Always also records an internal signal from our callback rates.
  */
@@ -14,14 +16,35 @@ export type ReputationLabel =
   | "FLAGGED"
   | "UNKNOWN";
 
+export type ReputationSource = "calltracer" | "hiya" | "internal" | "manual";
+
 export type ReputationResult = {
   e164: string;
   label: ReputationLabel;
   score?: number;
-  source: "hiya" | "internal" | "manual";
+  source: ReputationSource;
   flagged: boolean;
   details?: Record<string, unknown>;
 };
+
+const LABEL_RANK: Record<ReputationLabel, number> = {
+  UNFLAGGED: 0,
+  UNKNOWN: 1,
+  MIXED_LOW: 2,
+  MIXED_HIGH: 3,
+  FLAGGED: 4,
+};
+
+function digitsOnly(e164: string): string {
+  return e164.replace(/\D/g, "");
+}
+
+function labelFromSpamScore(score: number, reportCount: number): ReputationLabel {
+  if (score >= 70 || reportCount >= 10) return "FLAGGED";
+  if (score >= 40 || reportCount >= 3) return "MIXED_HIGH";
+  if (score >= 15 || reportCount >= 1) return "MIXED_LOW";
+  return "UNFLAGGED";
+}
 
 function normalizeHiyaLabel(raw: unknown): ReputationLabel {
   const s = String(raw ?? "")
@@ -32,6 +55,64 @@ function normalizeHiyaLabel(raw: unknown): ReputationLabel {
   if (s.includes("mixed_low") || s === "mixed-low") return "MIXED_LOW";
   if (s.includes("unflag") || s.includes("clean") || s.includes("ok")) return "UNFLAGGED";
   return "UNKNOWN";
+}
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * Free CallTracer lookup (crowd-sourced spam reports).
+ * Rate limit ~10/min — we space requests for small DID pools.
+ */
+export async function checkCallTracerReputation(
+  phones: string[],
+): Promise<ReputationResult[]> {
+  const out: ReputationResult[] = [];
+  for (let i = 0; i < phones.length; i++) {
+    const e164 = phones[i]!;
+    if (i > 0) await sleep(700); // stay under ~10/min
+    const digits = digitsOnly(e164);
+    try {
+      const res = await fetch(`https://calltracer.io/api/lookup/${digits}`, {
+        headers: { Accept: "application/json" },
+      });
+      const body: unknown = await res.json().catch(() => null);
+      if (!res.ok || !body || typeof body !== "object") {
+        out.push({
+          e164,
+          label: "UNKNOWN",
+          source: "calltracer",
+          flagged: false,
+          details: { error: body, status: res.status },
+        });
+        continue;
+      }
+      const reports =
+        (body as { reports?: Record<string, unknown> }).reports ?? {};
+      const score =
+        typeof reports.spam_score === "number" ? reports.spam_score : 0;
+      const total = typeof reports.total === "number" ? reports.total : 0;
+      const label = labelFromSpamScore(score, total);
+      out.push({
+        e164,
+        label,
+        score,
+        source: "calltracer",
+        flagged: label === "FLAGGED" || label === "MIXED_HIGH",
+        details: body as Record<string, unknown>,
+      });
+    } catch (err) {
+      out.push({
+        e164,
+        label: "UNKNOWN",
+        source: "calltracer",
+        flagged: false,
+        details: { error: String(err) },
+      });
+    }
+  }
+  return out;
 }
 
 /** Hiya Business Partner reputation lookup (paid API key required). */
@@ -130,28 +211,37 @@ export function internalCallbackHealth(input: {
   };
 }
 
+/** Merge any number of reputation signals; worst label wins. */
+export function mergeReputationResults(
+  ...results: Array<ReputationResult | undefined>
+): ReputationResult {
+  const present = results.filter((r): r is ReputationResult => Boolean(r));
+  if (present.length === 0) {
+    return {
+      e164: "",
+      label: "UNKNOWN",
+      source: "internal",
+      flagged: false,
+    };
+  }
+  let winner = present[0]!;
+  for (const r of present.slice(1)) {
+    if (LABEL_RANK[r.label] > LABEL_RANK[winner.label]) winner = r;
+  }
+  return {
+    ...winner,
+    flagged: present.some((r) => r.flagged),
+    details: {
+      sources: present.map((r) => r.source),
+      bySource: Object.fromEntries(present.map((r) => [r.source, r.details ?? r])),
+    },
+  };
+}
+
+/** @deprecated prefer mergeReputationResults */
 export function mergeReputation(
   external: ReputationResult | undefined,
   internal: ReputationResult,
 ): ReputationResult {
-  // Worst label wins
-  const rank: Record<ReputationLabel, number> = {
-    UNFLAGGED: 0,
-    UNKNOWN: 1,
-    MIXED_LOW: 2,
-    MIXED_HIGH: 3,
-    FLAGGED: 4,
-  };
-  if (!external) return internal;
-  const winner =
-    rank[external.label] >= rank[internal.label] ? external : internal;
-  return {
-    ...winner,
-    flagged: external.flagged || internal.flagged,
-    details: {
-      external: external.details,
-      internal: internal.details,
-      sources: [external.source, internal.source],
-    },
-  };
+  return mergeReputationResults(external, internal);
 }

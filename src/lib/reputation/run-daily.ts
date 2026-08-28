@@ -4,9 +4,10 @@
  */
 
 import {
+  checkCallTracerReputation,
   checkHiyaReputation,
   internalCallbackHealth,
-  mergeReputation,
+  mergeReputationResults,
   type ReputationResult,
 } from "@/lib/reputation/check";
 import { evaluateLineHealth } from "@/lib/reputation/evaluate";
@@ -30,6 +31,7 @@ export type DailyReputationSummary = {
   ran: boolean;
   skippedReason?: string;
   checkedAt: string;
+  calltracerEnabled: boolean;
   hiyaEnabled: boolean;
   lines: Array<{
     e164: string;
@@ -38,6 +40,7 @@ export type DailyReputationSummary = {
     status: string;
     action: string;
     reason?: string;
+    source?: string;
   }>;
   supabaseSynced: number;
 };
@@ -113,6 +116,7 @@ export async function runDailyReputationChecks(opts?: {
       ran: false,
       skippedReason: gate.reason,
       checkedAt,
+      calltracerEnabled: true,
       hiyaEnabled: Boolean(process.env.HIYA_API_KEY?.trim()),
       lines: [],
       supabaseSynced: 0,
@@ -131,7 +135,11 @@ export async function runDailyReputationChecks(opts?: {
 
   const phones = lines.map((l) => l.e164);
   const hiyaEnabled = Boolean(process.env.HIYA_API_KEY?.trim());
-  const hiyaResults = hiyaEnabled ? await checkHiyaReputation(phones) : [];
+  const [calltracerResults, hiyaResults] = await Promise.all([
+    checkCallTracerReputation(phones),
+    hiyaEnabled ? checkHiyaReputation(phones) : Promise.resolve([]),
+  ]);
+  const calltracerByPhone = new Map(calltracerResults.map((r) => [r.e164, r]));
   const hiyaByPhone = new Map(hiyaResults.map((r) => [r.e164, r]));
 
   const summaryLines: DailyReputationSummary["lines"] = [];
@@ -148,8 +156,11 @@ export async function runDailyReputationChecks(opts?: {
       callbackRate7d: rateRow.rate,
       poolAvgCallbackRate7d: poolAvg,
     });
-    const external = hiyaByPhone.get(line.e164);
-    const merged: ReputationResult = mergeReputation(external, internal);
+    const merged: ReputationResult = mergeReputationResults(
+      calltracerByPhone.get(line.e164),
+      hiyaByPhone.get(line.e164),
+      internal,
+    );
 
     const verdict = evaluateLineHealth({
       spamLabel: merged.label,
@@ -238,6 +249,7 @@ export async function runDailyReputationChecks(opts?: {
       status: nextStatus,
       action: verdict.action,
       reason: "reason" in verdict ? verdict.reason : undefined,
+      source: merged.source,
     });
   }
 
@@ -246,6 +258,7 @@ export async function runDailyReputationChecks(opts?: {
   return {
     ran: true,
     checkedAt,
+    calltracerEnabled: true,
     hiyaEnabled,
     lines: summaryLines,
     supabaseSynced,

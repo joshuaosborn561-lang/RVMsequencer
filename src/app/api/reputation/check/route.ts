@@ -26,6 +26,7 @@ export async function GET(req: Request) {
   return NextResponse.json({
     due: gate.run,
     reason: gate.reason ?? null,
+    calltracerEnabled: true,
     hiyaEnabled: Boolean(process.env.HIYA_API_KEY?.trim()),
   });
 }

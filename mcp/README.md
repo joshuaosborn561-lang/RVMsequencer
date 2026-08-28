@@ -1,38 +1,44 @@
-# RVM Drop MCP
+# RVM Drop MCP (Claude)
 
-Control the whole sequencer from Claude Desktop / Cursor via MCP.
+## Claude Connectors (HTTPS — Railway)
 
-## Why this stays in sync
+Paste this URL into Claude → Settings → Connectors:
 
-All tools live in [`catalog.ts`](./catalog.ts). Every `src/app/api/**/route.ts` must be listed in a tool’s `covers` array **or** in `ignoreRoutes`.
-
-```bash
-pnpm verify:mcp   # also runs inside pnpm verify
+```
+https://rvm-drop-production.up.railway.app/api/mcp
 ```
 
-When you add an API route, add (or ignore) it in the catalog in the same PR — otherwise verify fails.
+Optional auth: set Railway env `MCP_HTTP_TOKEN`, then in the connector send:
 
-## Setup (Claude Desktop)
+```
+Authorization: Bearer <MCP_HTTP_TOKEN>
+```
 
-1. Install deps in this repo (`pnpm install`).
-2. Copy [`claude_desktop_config.example.json`](./claude_desktop_config.example.json) into Claude’s MCP config and fix `cwd` + secrets.
-3. Restart Claude.
+Transport: Streamable HTTP (stateless JSON). Tools match the app API 1:1 (campaigns, leads, sequences, enrollments, audio, analytics, inbox, Twilio numbers).
 
-Env:
-
-| Var | Purpose |
-|---|---|
-| `RVM_DROP_BASE_URL` | App origin (prod or local) |
-| `RVM_DROP_CRON_SECRET` | `sequencer_drain` |
-| `RVM_DROP_WEBHOOK_SECRET` | `delivery_status` |
-| `RVM_DROP_BEARER` | Optional global bearer |
-
-## Tools
-
-See `mcpTools` in `catalog.ts` — campaigns, leads, clients/keys, inbox, settings, lines, suppress, scrub, timezone, sequencer drain, delivery status, health.
-
-## Run manually
+## Local stdio (Claude Desktop / Cursor)
 
 ```bash
-RVM_DROP_BASE_URL=http://localhost:3000 pnpm mcp
+pnpm mcp
+```
+
+```json
+{
+  "mcpServers": {
+    "rvm-drop": {
+      "command": "pnpm",
+      "args": ["--dir", "/absolute/path/to/RVMsequencer", "mcp"],
+      "env": {
+        "DATABASE_URL": "postgresql://...",
+        "CRON_SECRET": "same-as-app"
+      }
+    }
+  }
+}
+```
+
+## Verify
+
+```bash
+pnpm verify:mcp
 ```

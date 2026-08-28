@@ -12,7 +12,7 @@ To use Twilio numbers you buy as caller IDs for RVM, you need one of:
 
 | Approach | Ringless? | Who delivers | Notes |
 |---|---|---|---|
-| **RVM provider + BYOC Twilio** (e.g. historical Drop Cowboy BYOC — deprecated/skip) | Yes | Provider’s RVM stack, routed via your Twilio account/numbers | Prefer Slybroadcast + your Twilio DIDs as CID instead |
+| **RVM provider + BYOC Twilio** (third-party BYOC — not used) | Yes | Provider’s RVM stack via your Twilio numbers | Prefer Slybroadcast + your Twilio DIDs as CID instead |
 | **RVM provider standard delivery** (VoiceDrop, Slybroadcast, LeadsRain, Drop Co) | Yes | Provider’s carriers | Simpler ops; may not use *your* Twilio DIDs as CID |
 | **Twilio AMD voicemail drop** (`MachineDetection=DetectMessageEnd`) | **No** — phone rings | You / Twilio | TOS-compatible; hang up on human or leave message after beep; not true RVM |
 
@@ -51,7 +51,7 @@ Operator posture in this project: treat RVM more like cold-call risk (grey / une
 
 ### Market RVM delivery (static vs AI) — prefer API + cheap
 
-Drop Cowboy is **deprecated / skip** for this product (not a supported path). Cheaper documented APIs:
+Third-party BYOC RVM vendors were evaluated and **not adopted**. Documented APIs in use / considered:
 
 | Provider | Approx 2026 unit economics | 2,000 drops | API notes |
 |---|---|---|---|
@@ -60,7 +60,7 @@ Drop Cowboy is **deprecated / skip** for this product (not a supported path). Ch
 | **LeadsRain** | ~**$0.015–$0.02** + ~$0.002 DNC scrub | **~$44** | API at leadsrain.com/apidocs (legacy). Credits expire ~90d. |
 | **Topa.io** | AI RVM ~**$0.025**/drop bundled | **~$50** | Webhooks/integrations; less Twilio-CID fleet control. |
 | **VoiceDrop** | Static cheaper at scale; AI units pricier | Often >$100 for AI | Modern REST; premium positioning. |
-| **Drop Cowboy** | _(deprecated — skip)_ | — | Removed from product; historical research only. |
+| ~~Drop Cowboy~~ | _(removed)_ | — | Not supported in RVM Drop. |
 
 ### Twilio AMD path (not ringless)
 
@@ -85,7 +85,7 @@ Only regenerate when the script/voice changes. Full 1:1 per-lead TTS is optional
 
 1. **Deposit via Slybroadcast monthly 2k ($100 flat)** or Drop.co PAYG ($0.05 → $100) or LeadsRain (~$44 static).
 2. **Static or lightly templated audio** + Cartesia/ElevenLabs clone rendered once (or Part1/Part2 splice) so TTS ≠ budget killer.
-3. Skip Drop Cowboy (deprecated — not supported in RVM Drop).
+3. Do not use third-party BYOC RVM vendors; Slybroadcast + Twilio DIDs is the path.
 4. Full 1:1 AI personalization on VoiceDrop-style metering often **breaks** the $100 target.
 
 ### PAYG pick (user preference)
@@ -228,7 +228,7 @@ Wired APIs: `POST /api/scrub`, `GET /api/timezone`, `POST /api/voice/render`, `P
 - FCC 22-85 / FCC press DOC-389372A1 — RVM = TCPA call, consent required
 - Twilio docs: Answering Machine Detection, Voice pricing US, Voice Integrity
 - Voice.ai hub: Twilio does not support native RVM
-- Drop Cowboy: historical BYOC docs only (deprecated — skip for RVM Drop)
+- Third-party BYOC RVM: not used (Slybroadcast + Twilio DIDs instead)
 - VoiceDrop: 2026 RVM cost comparison + API
 - Topa.io homepage + help center credit/billing articles
 - LineShield (2026): DID warmup schedules; LienSuite calling deliverability guide

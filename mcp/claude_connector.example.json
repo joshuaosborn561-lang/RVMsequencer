@@ -1,0 +1,8 @@
+{
+  "name": "RVM Drop",
+  "url": "https://rvm-drop-production.up.railway.app/api/mcp",
+  "headers": {
+    "Authorization": "Bearer YOUR_MCP_HTTP_TOKEN"
+  },
+  "notes": "Paste the url into Claude Connectors. Authorization header is optional unless MCP_HTTP_TOKEN is set on Railway."
+}

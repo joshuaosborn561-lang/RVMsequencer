@@ -29,7 +29,7 @@ enum DeliveryProvider {
   DROP_CO
   LEADSRAIN
   VOICEDROP
-  DROP_COWBOY
+  DROP_COWBOY // legacy unused — do not select in app code
   TWILIO_AMD
   MOCK
 }

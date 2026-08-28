@@ -21,7 +21,7 @@ Tools like [Topa.io](https://topa.io) are excellent RVM channel bolt-ons (AI voi
 - File store (`.data/`) until Postgres is linked; Prisma schema includes Client / ApiKey / Inbox
 - Pure TS engines: warmup, line picker, compliance, reputation, cost estimator, local send windows
 - Pluggable delivery (`MOCK`, **Slybroadcast**, VoiceDrop, Twilio AMD, …)
-- **MCP server** for Claude — [`mcp/`](./mcp/) (catalog must cover every API route)
+- **MCP for Claude** — HTTPS Connectors: `https://rvm-drop-production.up.railway.app/api/mcp` — details in [`mcp/README.md`](./mcp/README.md)
 
 **Go live:** see [`docs/GO_LIVE.md`](./docs/GO_LIVE.md). **Claude MCP:** [`mcp/README.md`](./mcp/README.md).
 

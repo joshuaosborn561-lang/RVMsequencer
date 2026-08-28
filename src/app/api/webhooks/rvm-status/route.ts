@@ -8,7 +8,7 @@ import type { ProviderDeliveryEvent } from "@/lib/sequencer/reconcile-delivery";
  *
  * Accepts:
  * - Normalized body (our shape; default provider SLYBROADCAST)
- * - Legacy Drop Cowboy-shaped payloads ({ drop_id, foreign_id, status: success|failure })
+ * - Legacy provider payloads ({ drop_id, foreign_id, status: success|failure })
  *   still parsed for historical webhooks — not an active delivery path.
  *
  * Auth: Bearer / x-webhook-secret = RVM_STATUS_WEBHOOK_SECRET
@@ -62,7 +62,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  // Legacy success/failure shape (historical Drop Cowboy webhooks)
+  // Legacy success/failure shape (historical provider webhooks)
   const isLegacySuccessFailure =
     ("drop_id" in raw || "foreign_id" in raw) &&
     typeof raw.status === "string" &&

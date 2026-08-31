@@ -240,7 +240,7 @@ export const mcpTools: McpToolDef[] = [
   {
     name: "leads_import_from_url",
     description:
-      "Import leads from a signed HTTPS CSV URL (Supabase storage). Prefer over pasting large CSVs. Auto-guesses column mapping when omitted.",
+      "Import leads from an HTTPS Supabase CSV URL (public storage, signed URL, or edge feed). Prefer over pasting large CSVs. Auto-guesses column mapping when omitted.",
     method: "POST",
     path: "/api/campaigns/{id}/leads/from-url",
     pathParams: ["id"],
@@ -252,7 +252,7 @@ export const mcpTools: McpToolDef[] = [
         id: { type: "string", description: "Campaign id" },
         url: {
           type: "string",
-          description: "Signed HTTPS CSV URL (*.supabase.co)",
+          description: "HTTPS CSV URL on *.supabase.co (public or signed)",
         },
         mode: { type: "string", enum: ["append", "replace"] },
         mapping: {

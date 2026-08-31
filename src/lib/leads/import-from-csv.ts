@@ -47,7 +47,7 @@ function assertAllowedCsvUrl(rawUrl: string): URL {
   );
   if (!allowed) {
     throw new Error(
-      `url host must be a signed Supabase storage URL (allowed: ${ALLOWED_CSV_HOST_SUFFIXES.join(", ")})`,
+      `url host must be a Supabase HTTPS CSV URL (allowed: ${ALLOWED_CSV_HOST_SUFFIXES.join(", ")})`,
     );
   }
   return parsed;

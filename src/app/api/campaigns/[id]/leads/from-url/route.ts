@@ -26,7 +26,7 @@ export async function POST(request: Request, context: RouteContext) {
 
     if (!body.url || typeof body.url !== "string") {
       return NextResponse.json(
-        { error: "url is required (signed HTTPS CSV URL)" },
+        { error: "url is required (HTTPS Supabase CSV URL)" },
         { status: 400 },
       );
     }

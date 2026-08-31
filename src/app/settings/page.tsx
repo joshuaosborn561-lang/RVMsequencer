@@ -110,12 +110,14 @@ export default function SettingsPage() {
                 Call forwarding
               </h2>
               <p className="mt-1 text-sm text-[var(--muted)]">
-                When a lead calls a campaign DID, Dial your direct line
-                (Smartlead-style reply handling for voice).
+                When a lead calls a campaign DID, we Dial your Allo / VOIP line.
+                Press-1 accept is on by default so Allo&apos;s voicemail cannot
+                steal the bridge. Ring timeout should be longer than Allo&apos;s
+                ring-then-VM window (60s recommended).
               </p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <label className="flex flex-col gap-1.5 text-sm">
-                  <span className="text-[var(--muted)]">Your direct line</span>
+                  <span className="text-[var(--muted)]">Allo / direct line</span>
                   <input
                     className="sl-input font-[family-name:var(--font-mono)]"
                     value={phone}
@@ -139,7 +141,8 @@ export default function SettingsPage() {
                 onClick={() =>
                   void save({
                     callForwardToE164: phone.trim() || null,
-                    callForwardTimeoutSec: Number(timeoutSec) || 30,
+                    callForwardTimeoutSec: Number(timeoutSec) || 60,
+                    callForwardRequireAccept: true,
                   })
                 }
               >

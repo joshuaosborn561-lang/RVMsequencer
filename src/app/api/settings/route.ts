@@ -23,6 +23,7 @@ export async function GET() {
 const Body = z.object({
   callForwardToE164: z.union([z.string(), z.null()]).optional(),
   callForwardTimeoutSec: z.number().int().min(5).max(120).optional(),
+  callForwardRequireAccept: z.boolean().optional(),
   hardCapDailySends: z.number().int().min(1).max(100_000).optional(),
   lineMinGapSec: z.number().int().min(0).max(86_400).optional(),
   requireFcrRegistration: z.boolean().optional(),
@@ -39,6 +40,7 @@ export async function PATCH(req: Request) {
   const patch: {
     callForwardToE164?: string;
     callForwardTimeoutSec?: number;
+    callForwardRequireAccept?: boolean;
     hardCapDailySends?: number;
     lineMinGapSec?: number;
     requireFcrRegistration?: boolean;
@@ -48,6 +50,9 @@ export async function PATCH(req: Request) {
 
   if (parsed.data.callForwardTimeoutSec != null) {
     patch.callForwardTimeoutSec = parsed.data.callForwardTimeoutSec;
+  }
+  if (parsed.data.callForwardRequireAccept != null) {
+    patch.callForwardRequireAccept = parsed.data.callForwardRequireAccept;
   }
   if (parsed.data.hardCapDailySends != null) {
     patch.hardCapDailySends = parsed.data.hardCapDailySends;

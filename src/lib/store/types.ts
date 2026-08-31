@@ -189,6 +189,11 @@ export type InboxMessage = {
 export type WorkspaceSettings = {
   callForwardToE164?: string;
   callForwardTimeoutSec?: number;
+  /**
+   * When true (default), Allo/callee must press 1 before the lead is bridged.
+   * Prevents Allo's voicemail from "answering" and dumping the callback into VM.
+   */
+  callForwardRequireAccept?: boolean;
   /** @deprecated Unused — per-line dailyCap is the volume limit. */
   hardCapDailySends?: number;
   lineMinGapSec?: number;

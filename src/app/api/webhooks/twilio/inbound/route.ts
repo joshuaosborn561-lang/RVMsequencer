@@ -5,6 +5,7 @@ import {
 } from "@/lib/integrations/callback-hubspot";
 import {
   addInboxMessage,
+  getSettings,
   listCampaigns,
   resolveCallForwardTo,
   suppressLeadByPhone,
@@ -165,12 +166,21 @@ export async function POST(req: Request) {
       })
       .catch((err) => console.error("[supabase] insertRvmCallback failed", err));
 
+    const settings = await getSettings();
+    const requireAccept = settings.callForwardRequireAccept !== false;
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
+    const screenUrl =
+      requireAccept && appUrl
+        ? `${appUrl}/api/webhooks/twilio/forward-screen`
+        : undefined;
+
     return new NextResponse(
       dialForwardTwiml({
         forwardToE164: forward.e164,
         leadE164: from,
         didE164: to,
-        timeoutSec: forward.timeoutSec,
+        timeoutSec: Math.max(forward.timeoutSec, 45),
+        screenUrl,
       }),
       { headers: { "content-type": "text/xml" } },
     );

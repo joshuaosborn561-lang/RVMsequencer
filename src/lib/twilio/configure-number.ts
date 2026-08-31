@@ -2,8 +2,9 @@
  * Point a Twilio IncomingPhoneNumber at RVM Drop webhooks / call-forward.
  * @see https://www.twilio.com/docs/phone-numbers/api/incomingphonenumber-resource
  *
- * Primary VoiceUrl = app inbound webhook (inbox + Dial with answerOnBridge).
+ * Primary VoiceUrl = app inbound (Dial → Allo with answerOnBridge + press-1).
  * Twimlets forward is VoiceFallbackUrl only — used if the app is down.
+ * Do NOT use Twimlets as primary: it bridges into Allo voicemail with no screening.
  */
 export async function configureTwilioNumberWebhooks(input: {
   phoneNumberSid?: string;

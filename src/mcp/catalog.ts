@@ -28,6 +28,7 @@ export type McpToolDef = {
 export const ignoreRoutes: string[] = [
   "src/app/api/webhooks/twilio/inbound/route.ts",
   "src/app/api/webhooks/twilio/status/route.ts",
+  "src/app/api/webhooks/twilio/forward-screen/route.ts",
   "src/app/api/voice/render/route.ts", // TTS removed
   "src/app/api/mcp/route.ts", // remote MCP endpoint itself
   "src/app/api/supabase/refresh-outcomes/route.ts", // cron helper; covered by sequencer_drain ops
@@ -401,7 +402,15 @@ export const mcpTools: McpToolDef[] = [
       type: "object",
       properties: {
         callForwardToE164: { type: ["string", "null"] },
-        callForwardTimeoutSec: { type: "number" },
+        callForwardTimeoutSec: {
+          type: "number",
+          description: "Dial ring timeout; use ≥60 so Allo can ring before its VM",
+        },
+        callForwardRequireAccept: {
+          type: "boolean",
+          description:
+            "Default true. Allo/callee must press 1 before bridge — blocks Allo voicemail from answering the callback",
+        },
         hardCapDailySends: {
           type: "number",
           description: "Deprecated — ignored; per-line dailyCap limits volume",

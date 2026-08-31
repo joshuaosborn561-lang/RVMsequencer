@@ -10,33 +10,35 @@ function xmlEscape(s: string): string {
 }
 
 /**
- * Dial the Allo / forward line for an inbound callback on a campaign DID.
+ * Dial Allo for an inbound callback on a campaign DID.
  *
- * Live symptom Allo reports: "dropped while ringing" — that is our <Dial>
- * timeout cancelling the B-leg while Allo is still ringing. Twimlets forward
- * defaults to ~20s; Allo's ring step is often 30–60s. Keep timeout ≥ Allo ring.
+ * Evidence (Twilio Call events, 2026-08-31):
+ *   Dial to +12149107558 completes in 2–7s with dial_call_status=completed
+ *   and dial_bridged=true — Allo (or its VM/AI) is ANSWERING, not timing out.
+ *   TwiML was using callerId=<lead>. Unknown/spam From is the usual reason a
+ *   VOIP line rings once then dumps to voicemail.
  *
- * - answerOnBridge: lead hears ringtone until Allo accepts
- * - lead as callerId: Allo can match CRM contact
- * - screenUrl (optional press-1): only after Allo answers; off by default
+ * Rules:
+ * - callerId MUST be the Twilio DID (Twilio only allows account numbers /
+ *   verified IDs; DID also looks like a known business line to Allo)
+ * - answerOnBridge so the lead hears ring until Allo actually answers
+ * - optional whisperUrl announces the lead number to the Allo user after answer
+ * - timeout ≥ Allo ring window (fallback only; live failures are early-answer)
  */
 export function dialForwardTwiml(input: {
   forwardToE164: string;
-  /** Inbound From (lead) — preferred callerId so Allo shows the contact */
+  /** Lead who called — whispered to Allo, NOT used as callerId */
   leadE164?: string;
-  /** Twilio DID that was dialed — fallback callerId */
+  /** Campaign DID — required callerId on the Dial leg */
   didE164?: string;
   timeoutSec?: number;
-  /** When set, Number url runs press-1 screening before bridge */
+  /** Number url: whisper and/or press-1 before bridge */
   screenUrl?: string;
 }): string {
   const to = toE164(input.forwardToE164) ?? input.forwardToE164;
   const timeout = Math.min(120, Math.max(45, input.timeoutSec ?? 90));
-  // Prefer lead CID for Allo CRM match; DID only if lead missing.
-  const callerId =
-    (input.leadE164 && toE164(input.leadE164)) ||
-    (input.didE164 && toE164(input.didE164)) ||
-    undefined;
+  // ONLY the DID — never the lead. Invalid/spam From → Allo one-ring-to-VM.
+  const callerId = (input.didE164 && toE164(input.didE164)) || undefined;
 
   const callerAttr = callerId ? ` callerId="${xmlEscape(callerId)}"` : "";
   const screenAttr = input.screenUrl
@@ -51,11 +53,23 @@ export function dialForwardTwiml(input: {
 </Response>`;
 }
 
-/** Whisper on the Allo/callee leg — press 1 or we hang up (blocks Allo VM bridge). */
-export function forwardScreenGatherTwiml(input?: { leadE164?: string }): string {
-  const who = input?.leadE164
-    ? ` from ${xmlEscape(input.leadE164)}`
-    : "";
+/**
+ * Runs on Allo's leg after answer, before bridge.
+ * Default: whisper the lead number then connect (no digit required).
+ * Opt-in press-1: set requireAccept on the webhook query string.
+ */
+export function forwardScreenGatherTwiml(input: {
+  leadE164?: string;
+  requireAccept?: boolean;
+}): string {
+  const lead = input.leadE164 ? toE164(input.leadE164) : undefined;
+  const who = lead ? ` from ${xmlEscape(lead)}` : "";
+  if (!input.requireAccept) {
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Joanna">RVM callback${who}.</Say>
+</Response>`;
+  }
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather numDigits="1" timeout="10" actionOnEmptyResult="true">

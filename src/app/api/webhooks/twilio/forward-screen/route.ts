@@ -5,10 +5,15 @@ import {
 } from "@/lib/twilio/twiml";
 
 /**
- * Runs on the Allo / forward-leg after answer, before bridge.
- * Humans press 1; Allo voicemail cannot → Hangup (lead never lands in VM).
+ * Allo leg after answer, before bridge.
+ * Query: ?lead=+1…&accept=1 (accept=1 → press-1 required).
+ * Twilio posts Digits when Gather finishes.
  */
 export async function POST(req: Request) {
+  const url = new URL(req.url);
+  const leadE164 = url.searchParams.get("lead") ?? undefined;
+  const requireAccept = url.searchParams.get("accept") === "1";
+
   const contentType = req.headers.get("content-type") ?? "";
   const params: Record<string, string> = {};
   if (contentType.includes("application/x-www-form-urlencoded")) {
@@ -18,7 +23,6 @@ export async function POST(req: Request) {
     }
   }
 
-  // Twilio posts Digits when Gather finishes (same URL when action omitted).
   if ("Digits" in params) {
     return new NextResponse(forwardScreenResultTwiml(params.Digits), {
       headers: { "content-type": "text/xml" },
@@ -26,7 +30,10 @@ export async function POST(req: Request) {
   }
 
   return new NextResponse(
-    forwardScreenGatherTwiml({ leadE164: params.From }),
+    forwardScreenGatherTwiml({
+      leadE164: leadE164 || params.From,
+      requireAccept,
+    }),
     { headers: { "content-type": "text/xml" } },
   );
 }

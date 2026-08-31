@@ -167,7 +167,9 @@ export async function POST(req: Request) {
       .catch((err) => console.error("[supabase] insertRvmCallback failed", err));
 
     const settings = await getSettings();
-    const requireAccept = settings.callForwardRequireAccept !== false;
+    // Press-1 is opt-in. Default off: Allo "dropped while ringing" is a Dial
+    // timeout issue, and screening only runs after answer.
+    const requireAccept = settings.callForwardRequireAccept === true;
     const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
     const screenUrl =
       requireAccept && appUrl
@@ -179,7 +181,7 @@ export async function POST(req: Request) {
         forwardToE164: forward.e164,
         leadE164: from,
         didE164: to,
-        timeoutSec: Math.max(forward.timeoutSec, 45),
+        timeoutSec: Math.max(forward.timeoutSec, 90),
         screenUrl,
       }),
       { headers: { "content-type": "text/xml" } },

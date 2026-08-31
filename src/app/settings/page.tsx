@@ -110,10 +110,10 @@ export default function SettingsPage() {
                 Call forwarding
               </h2>
               <p className="mt-1 text-sm text-[var(--muted)]">
-                When a lead calls a campaign DID, we Dial your Allo / VOIP line.
-                Press-1 accept is on by default so Allo&apos;s voicemail cannot
-                steal the bridge. Ring timeout should be longer than Allo&apos;s
-                ring-then-VM window (60s recommended).
+                When a lead calls a campaign DID, we Dial your Allo line. Dial
+                timeout must exceed Allo&apos;s ring time (90s recommended) —
+                Twimlets&apos; ~20s default causes Allo to show &quot;dropped
+                while ringing&quot;.
               </p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <label className="flex flex-col gap-1.5 text-sm">
@@ -141,8 +141,8 @@ export default function SettingsPage() {
                 onClick={() =>
                   void save({
                     callForwardToE164: phone.trim() || null,
-                    callForwardTimeoutSec: Number(timeoutSec) || 60,
-                    callForwardRequireAccept: true,
+                    callForwardTimeoutSec: Number(timeoutSec) || 90,
+                    callForwardRequireAccept: false,
                   })
                 }
               >

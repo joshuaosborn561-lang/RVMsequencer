@@ -404,12 +404,13 @@ export const mcpTools: McpToolDef[] = [
         callForwardToE164: { type: ["string", "null"] },
         callForwardTimeoutSec: {
           type: "number",
-          description: "Dial ring timeout; use ≥60 so Allo can ring before its VM",
+          description:
+            "Dial ring timeout; use ≥90 so Allo can finish ringing (Twimlets default ~20s drops mid-ring)",
         },
         callForwardRequireAccept: {
           type: "boolean",
           description:
-            "Default true. Allo/callee must press 1 before bridge — blocks Allo voicemail from answering the callback",
+            "Opt-in. When true, Allo must press 1 after answer before bridge",
         },
         hardCapDailySends: {
           type: "number",

@@ -71,7 +71,7 @@ const defaultStore = (): StoreShape => ({
   leads: [],
   inbox: [],
   settings: {
-    callForwardTimeoutSec: 60,
+    callForwardTimeoutSec: 90,
     maxAttemptsPerContactPerDay: 2,
   },
   preferences: {},
@@ -1118,7 +1118,7 @@ export async function resolveCallForwardTo(): Promise<{
   source: "env" | "settings" | "none";
 }> {
   const settings = await getSettings();
-  const timeoutSec = settings.callForwardTimeoutSec ?? 60;
+  const timeoutSec = settings.callForwardTimeoutSec ?? 90;
   const fromEnv = process.env.CALL_FORWARD_TO_E164?.trim();
   if (fromEnv) return { e164: fromEnv, timeoutSec, source: "env" };
   if (settings.callForwardToE164) {

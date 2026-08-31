@@ -10,17 +10,15 @@ function xmlEscape(s: string): string {
 }
 
 /**
- * Dial the callback handset / Allo VOIP line.
+ * Dial the Allo / forward line for an inbound callback on a campaign DID.
  *
- * Allo (and similar Twilio-backed softphones) often answer with their own
- * voicemail when nobody taps Accept. Without screening, <Dial> treats that
- * as a successful answer and bridges the lead into Allo's VM.
+ * Live symptom Allo reports: "dropped while ringing" — that is our <Dial>
+ * timeout cancelling the B-leg while Allo is still ringing. Twimlets forward
+ * defaults to ~20s; Allo's ring step is often 30–60s. Keep timeout ≥ Allo ring.
  *
- * - answerOnBridge: lead hears ringtone until the forward leg is accepted
- * - lead as callerId: Allo can match the CRM contact (DID is fallback only)
- * - optional screenUrl (press-1): Allo VM can't press 1 → we Hangup instead
- *   of bridging into voicemail
- * - timeout must exceed Allo's ring-then-VM window (often 30s+)
+ * - answerOnBridge: lead hears ringtone until Allo accepts
+ * - lead as callerId: Allo can match CRM contact
+ * - screenUrl (optional press-1): only after Allo answers; off by default
  */
 export function dialForwardTwiml(input: {
   forwardToE164: string;
@@ -33,7 +31,7 @@ export function dialForwardTwiml(input: {
   screenUrl?: string;
 }): string {
   const to = toE164(input.forwardToE164) ?? input.forwardToE164;
-  const timeout = Math.min(120, Math.max(20, input.timeoutSec ?? 60));
+  const timeout = Math.min(120, Math.max(45, input.timeoutSec ?? 90));
   // Prefer lead CID for Allo CRM match; DID only if lead missing.
   const callerId =
     (input.leadE164 && toE164(input.leadE164)) ||

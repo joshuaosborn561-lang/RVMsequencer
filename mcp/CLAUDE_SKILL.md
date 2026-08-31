@@ -41,7 +41,7 @@ Ask one by one (offer defaults from preferences):
 - Org hard cap → not used (per-line dailyCap only)
 - Max 2 attempts per contact per day (built-in)
 - Optional ramp → `ramp: { enabled, startPerDay, incrementPerDay, ceilingPerDay }`
-- Call forward for callbacks → `settings_update` `{ callForwardToE164, callForwardTimeoutSec: 60, callForwardRequireAccept: true }` (Allo/VOIP: press-1 so Allo VM cannot steal the bridge).
+- Call forward for callbacks → `settings_update` `{ callForwardToE164, callForwardTimeoutSec: 90 }` (must exceed Allo ring time; Twimlets ~20s causes "dropped while ringing").
 
 Then `campaigns_update` with `schedule` (+ `ramp` if used) and confirm the summary.
 

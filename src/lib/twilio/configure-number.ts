@@ -23,7 +23,9 @@ export async function configureTwilioNumberWebhooks(input: {
   const { resolveCallForwardTo } = await import("@/lib/store/db");
   const forward = await resolveCallForwardTo();
   const forwardDigits = (forward.e164 || "").replace(/\D/g, "") || "12149107558";
-  const twimlet = `http://twimlets.com/forward?PhoneNumber=${forwardDigits}`;
+  // Twimlets default Dial timeout is ~20s — Allo reports "dropped while ringing".
+  const timeout = Math.max(forward.timeoutSec ?? 90, 90);
+  const twimlet = `http://twimlets.com/forward?PhoneNumber=${forwardDigits}&Timeout=${timeout}`;
   const inboundUrl = `${appUrl}/api/webhooks/twilio/inbound`;
   const statusUrl = `${appUrl}/api/webhooks/twilio/status`;
   const auth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");

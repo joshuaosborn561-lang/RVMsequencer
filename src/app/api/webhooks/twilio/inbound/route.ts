@@ -5,7 +5,6 @@ import {
 } from "@/lib/integrations/callback-hubspot";
 import {
   addInboxMessage,
-  getSettings,
   listCampaigns,
   resolveCallForwardTo,
   suppressLeadByPhone,
@@ -166,26 +165,12 @@ export async function POST(req: Request) {
       })
       .catch((err) => console.error("[supabase] insertRvmCallback failed", err));
 
-    const settings = await getSettings();
-    const requireAccept = settings.callForwardRequireAccept === true;
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
-    // Always whisper lead number on Allo leg; DID is Dial callerId.
-    // Press-1 only when callForwardRequireAccept=true.
-    let screenUrl: string | undefined;
-    if (appUrl) {
-      const q = new URLSearchParams();
-      if (from) q.set("lead", from);
-      if (requireAccept) q.set("accept", "1");
-      screenUrl = `${appUrl}/api/webhooks/twilio/forward-screen?${q.toString()}`;
-    }
-
     return new NextResponse(
       dialForwardTwiml({
         forwardToE164: forward.e164,
         leadE164: from,
         didE164: to,
         timeoutSec: Math.max(forward.timeoutSec, 90),
-        screenUrl,
       }),
       { headers: { "content-type": "text/xml" } },
     );

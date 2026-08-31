@@ -110,10 +110,9 @@ export default function SettingsPage() {
                 Call forwarding
               </h2>
               <p className="mt-1 text-sm text-[var(--muted)]">
-                When a lead calls a campaign DID, we Dial your Allo line. Dial
-                timeout must exceed Allo&apos;s ring time (90s recommended) —
-                Twimlets&apos; ~20s default causes Allo to show &quot;dropped
-                while ringing&quot;.
+                When a lead calls a campaign DID, we Dial your Allo line. Caller
+                ID is the lead (Twilio default). Keep Dial timeout ≥ Allo ring
+                time (90s recommended). Turn off Allo DND while testing.
               </p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <label className="flex flex-col gap-1.5 text-sm">
@@ -142,7 +141,6 @@ export default function SettingsPage() {
                   void save({
                     callForwardToE164: phone.trim() || null,
                     callForwardTimeoutSec: Number(timeoutSec) || 90,
-                    callForwardRequireAccept: false,
                   })
                 }
               >

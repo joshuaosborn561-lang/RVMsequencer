@@ -2,8 +2,8 @@
  * Point a Twilio IncomingPhoneNumber at RVM Drop webhooks / call-forward.
  * @see https://www.twilio.com/docs/phone-numbers/api/incomingphonenumber-resource
  *
- * VoiceUrl uses Twilio Twimlets forward so callbacks always ring through even
- * if our app webhook is down. StatusCallback + SmsUrl still hit RVM Drop.
+ * Primary VoiceUrl = app inbound webhook (inbox + Dial with answerOnBridge).
+ * Twimlets forward is VoiceFallbackUrl only — used if the app is down.
  */
 export async function configureTwilioNumberWebhooks(input: {
   phoneNumberSid?: string;
@@ -49,11 +49,11 @@ export async function configureTwilioNumberWebhooks(input: {
   if (!sid) return { ok: false, error: "SID_OR_E164_REQUIRED" };
 
   const body = new URLSearchParams({
-    // Reliable PSTN answer → dial your phone (Twilio IncomingPhoneNumber VoiceUrl)
-    VoiceUrl: twimlet,
-    VoiceMethod: "GET",
-    VoiceFallbackUrl: inboundUrl,
-    VoiceFallbackMethod: "POST",
+    // App first: proper Dial (answerOnBridge + DID callerId) + inbox logging
+    VoiceUrl: inboundUrl,
+    VoiceMethod: "POST",
+    VoiceFallbackUrl: twimlet,
+    VoiceFallbackMethod: "GET",
     SmsUrl: inboundUrl,
     SmsMethod: "POST",
     StatusCallback: statusUrl,

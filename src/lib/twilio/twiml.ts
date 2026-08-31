@@ -9,26 +9,32 @@ function xmlEscape(s: string): string {
     .replace(/'/g, "&apos;");
 }
 
-/** TwiML that dials your direct line and preserves the lead as caller ID when possible. */
+/** TwiML that dials your direct line.
+ * Uses the Twilio DID as callerId (not the lead) so your phone recognizes
+ * the business line and Silence Unknown Callers / spam filters don't dump
+ * callbacks straight to voicemail. answerOnBridge keeps the lead on hold
+ * with ringtone until you pick up.
+ */
 export function dialForwardTwiml(input: {
   forwardToE164: string;
-  /** Inbound From (lead) — shown on your phone when Twilio allows */
+  /** Inbound From (lead) — kept for logging / whisper, not used as callerId */
   leadE164?: string;
-  /** Twilio DID that was dialed */
+  /** Twilio DID that was dialed — used as callerId on the forward leg */
   didE164?: string;
   timeoutSec?: number;
 }): string {
   const to = toE164(input.forwardToE164) ?? input.forwardToE164;
-  const timeout = Math.min(120, Math.max(5, input.timeoutSec ?? 30));
+  const timeout = Math.min(120, Math.max(15, input.timeoutSec ?? 45));
+  // Prefer DID as caller ID so your handset sees a known business number.
   const callerId =
-    (input.leadE164 && toE164(input.leadE164)) ||
     (input.didE164 && toE164(input.didE164)) ||
+    (input.leadE164 && toE164(input.leadE164)) ||
     undefined;
 
   const callerAttr = callerId ? ` callerId="${xmlEscape(callerId)}"` : "";
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Dial timeout="${timeout}"${callerAttr}>
+  <Dial timeout="${timeout}" answerOnBridge="true"${callerAttr}>
     <Number>${xmlEscape(to)}</Number>
   </Dial>
 </Response>`;

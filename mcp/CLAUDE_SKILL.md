@@ -14,8 +14,9 @@ Walk the user through a full ringless-voicemail campaign. Be conversational. One
 ### 1) Campaign + leads
 - Ask for a campaign name (or invent one from context).
 - `campaigns_create` `{ name, clientId? }` — use `defaultClientId` from preferences when present.
-- Ask for phone numbers (paste list or CSV).
-- `leads_import` `{ id, mode: "append", leads: [{ phone, firstName?, ... }] }` (or `csv` + `mapping`).
+- Ask for phone numbers (paste list, CSV text, or a signed Supabase CSV URL).
+- Prefer `leads_import_from_url` `{ id, url, mode: "append" }` when they have a signed HTTPS CSV (Supabase storage) — avoids huge pastes. Mapping auto-guesses; pass `mapping.phone` if needed.
+- Otherwise `leads_import` `{ id, mode: "append", leads: [{ phone, firstName?, ... }] }` (or `csv` + `mapping`).
 - Optionally `scrub_phones` first if they want a dry scrub.
 
 ### 2) Voicemail audio

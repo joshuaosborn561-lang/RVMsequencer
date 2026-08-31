@@ -238,6 +238,38 @@ export const mcpTools: McpToolDef[] = [
     covers: ["src/app/api/campaigns/[id]/leads/route.ts"],
   },
   {
+    name: "leads_import_from_url",
+    description:
+      "Import leads from a signed HTTPS CSV URL (Supabase storage). Prefer over pasting large CSVs. Auto-guesses column mapping when omitted.",
+    method: "POST",
+    path: "/api/campaigns/{id}/leads/from-url",
+    pathParams: ["id"],
+    body: true,
+    inputSchema: {
+      type: "object",
+      required: ["id", "url"],
+      properties: {
+        id: { type: "string", description: "Campaign id" },
+        url: {
+          type: "string",
+          description: "Signed HTTPS CSV URL (*.supabase.co)",
+        },
+        mode: { type: "string", enum: ["append", "replace"] },
+        mapping: {
+          type: "object",
+          properties: {
+            phone: { type: "string" },
+            firstName: { type: "string" },
+            lastName: { type: "string" },
+            company: { type: "string" },
+            email: { type: "string" },
+          },
+        },
+      },
+    },
+    covers: ["src/app/api/campaigns/[id]/leads/from-url/route.ts"],
+  },
+  {
     name: "clients_list",
     description: "List clients (HubSpot opt-in flags included).",
     method: "GET",

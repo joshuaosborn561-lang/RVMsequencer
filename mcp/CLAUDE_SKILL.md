@@ -21,7 +21,7 @@ Walk the user through a full ringless-voicemail campaign. Be conversational. One
 
 ### 2) Voicemail audio
 Ask: **“Reuse a saved recording, open a phone recorder link, give me a public URL, or upload a file?”**
-- Prefer `create_recording_link` `{ id }` → send the operator the `url`. They record in the browser; then poll `campaigns_get` until `audioUrl` is set.
+- Prefer `create_recording_link` `{ id, script: "Hey {{first_name}}…" }` → send the operator the `url`. The script appears on the recorder page. They record in the browser; then poll `campaigns_get` until `audioUrl` is set.
 - Reuse → show `audio_list`, then set that `url`.
 - URL → `audio_upload` `{ name, url }`.
 - New file → ask them to attach WAV/MP3/M4A; call `audio_upload` `{ name, base64, contentType }`.

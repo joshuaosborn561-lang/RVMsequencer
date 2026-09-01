@@ -510,7 +510,7 @@ export const mcpTools: McpToolDef[] = [
   {
     name: "create_recording_link",
     description:
-      "Returns a signed browser link the operator opens (phone or desktop) to record voicemail audio directly onto the campaign. Prefer this over base64 paste. After they save, poll campaigns_get until audioUrl is set. Does not change campaign status.",
+      "Returns a signed browser link the operator opens (phone or desktop) to record voicemail audio onto the campaign. Pass script / scriptTemplate to put the read-aloud script on that page. After they save, poll campaigns_get until audioUrl is set. Does not change campaign status.",
     method: "POST",
     path: "/api/campaigns/{id}/recording-link",
     pathParams: ["id"],
@@ -520,6 +520,15 @@ export const mcpTools: McpToolDef[] = [
       required: ["id"],
       properties: {
         id: { type: "string", description: "Campaign id" },
+        scriptTemplate: {
+          type: "string",
+          description:
+            "Voicemail script shown on the recorder page (merge tags like {{first_name}} ok)",
+        },
+        script: {
+          type: "string",
+          description: "Alias for scriptTemplate",
+        },
         ttlHours: {
           type: "integer",
           description: "Link lifetime in hours (default 168 = 7 days)",

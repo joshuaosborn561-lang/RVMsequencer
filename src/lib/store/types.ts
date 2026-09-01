@@ -239,7 +239,7 @@ export type AudioAsset = {
   contentType?: string;
   /** Absolute path under DATA_DIR when uploaded locally (not exposed via API). */
   localPath?: string;
-  source: "upload" | "url";
+  source: "upload" | "url" | "recording";
   createdAt: string;
 };
 

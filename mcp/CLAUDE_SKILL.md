@@ -20,11 +20,12 @@ Walk the user through a full ringless-voicemail campaign. Be conversational. One
 - Optionally `scrub_phones` first if they want a dry scrub.
 
 ### 2) Voicemail audio
-Ask: **“Reuse a saved recording, give me a public URL, or upload a new file?”**
+Ask: **“Reuse a saved recording, open a phone recorder link, give me a public URL, or upload a file?”**
+- Prefer `create_recording_link` `{ id }` → send the operator the `url`. They record in the browser; then poll `campaigns_get` until `audioUrl` is set.
 - Reuse → show `audio_list`, then set that `url`.
 - URL → `audio_upload` `{ name, url }`.
-- New recording → ask them to attach/upload WAV/MP3/M4A; call `audio_upload` `{ name, base64, contentType }`.
-- Put the returned `asset.url` on the campaign via `campaigns_update` `{ id, audioUrl }`.
+- New file → ask them to attach WAV/MP3/M4A; call `audio_upload` `{ name, base64, contentType }`.
+- Put the returned `asset.url` on the campaign via `campaigns_update` `{ id, audioUrl }` (recording link already attaches it).
 
 ### 3) Caller ID lines (Twilio DIDs)
 - Show `lines_list` (e164, dailyCap, sentToday, status).

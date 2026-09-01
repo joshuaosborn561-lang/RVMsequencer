@@ -508,6 +508,30 @@ export const mcpTools: McpToolDef[] = [
     covers: ["src/app/api/audio/route.ts", "src/app/api/audio/[id]/file/route.ts"],
   },
   {
+    name: "create_recording_link",
+    description:
+      "Returns a signed browser link the operator opens (phone or desktop) to record voicemail audio directly onto the campaign. Prefer this over base64 paste. After they save, poll campaigns_get until audioUrl is set. Does not change campaign status.",
+    method: "POST",
+    path: "/api/campaigns/{id}/recording-link",
+    pathParams: ["id"],
+    body: true,
+    inputSchema: {
+      type: "object",
+      required: ["id"],
+      properties: {
+        id: { type: "string", description: "Campaign id" },
+        ttlHours: {
+          type: "integer",
+          description: "Link lifetime in hours (default 168 = 7 days)",
+        },
+      },
+    },
+    covers: [
+      "src/app/api/campaigns/[id]/recording-link/route.ts",
+      "src/app/api/audio/record/route.ts",
+    ],
+  },
+  {
     name: "preferences_get",
     description:
       "Load saved Claude defaults (lines, audio, schedule, caps). Call first in a new chat to skip re-asking.",

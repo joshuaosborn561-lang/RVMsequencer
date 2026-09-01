@@ -776,6 +776,7 @@ export async function uploadAudioAsset(input: {
   bytes: Buffer;
   contentType?: string;
   ext?: string;
+  source?: AudioAsset["source"];
 }): Promise<AudioAsset> {
   await mkdir(AUDIO_DIR, { recursive: true });
   const id = `aud_${randomUUID().slice(0, 8)}`;
@@ -805,7 +806,7 @@ export async function uploadAudioAsset(input: {
       url,
       contentType,
       localPath,
-      source: "upload",
+      source: input.source ?? "upload",
       createdAt: new Date().toISOString(),
     };
     store.audioAssets = [row, ...(store.audioAssets ?? [])].slice(0, 100);
@@ -816,6 +817,73 @@ export async function uploadAudioAsset(input: {
     };
     const { localPath: _lp, ...publicRow } = row;
     return publicRow as AudioAsset;
+  });
+}
+
+/**
+ * Write WAV to volume and attach to campaign + step 1 in one store mutation.
+ * Never changes campaign status.
+ */
+export async function saveRecordingToCampaign(input: {
+  campaignId: string;
+  bytes: Buffer;
+  durationSeconds?: number;
+}): Promise<{
+  asset: AudioAsset;
+  campaign: CampaignRecord;
+  durationSeconds?: number;
+} | null> {
+  await mkdir(AUDIO_DIR, { recursive: true });
+  const id = `aud_${randomUUID().slice(0, 8)}`;
+  const filename = `${id}.wav`;
+  const localPath = path.join(AUDIO_DIR, filename);
+  await writeFile(localPath, input.bytes);
+  const url = `${publicAppUrl()}/api/audio/${id}/file`;
+
+  return mutateStore((store) => {
+    const idx = store.campaigns.findIndex((c) => c.id === input.campaignId);
+    if (idx < 0) return null;
+    const campaign = store.campaigns[idx]!;
+    const row: AudioAsset = {
+      id,
+      name: `${campaign.name} recording`,
+      url,
+      contentType: "audio/wav",
+      localPath,
+      source: "recording",
+      createdAt: new Date().toISOString(),
+    };
+    store.audioAssets = [row, ...(store.audioAssets ?? [])].slice(0, 100);
+    store.preferences = {
+      ...store.preferences,
+      defaultAudioUrl: row.url,
+      defaultAudioAssetId: row.id,
+    };
+
+    const steps = campaign.steps.map((s) =>
+      s.position === 1 ? { ...s, audioUrl: url } : s,
+    );
+    if (steps.length > 0 && !steps.some((s) => s.position === 1)) {
+      steps[0] = { ...steps[0]!, audioUrl: url };
+    } else if (steps.length > 0 && !steps.some((s) => s.audioUrl === url)) {
+      const i = steps.findIndex((s) => s.position === 1);
+      if (i >= 0) steps[i] = { ...steps[i]!, audioUrl: url };
+    }
+
+    store.campaigns[idx] = {
+      ...campaign,
+      audioUrl: url,
+      steps,
+      updatedAt: new Date().toISOString(),
+      // status intentionally unchanged
+    };
+
+    const { localPath: _lp, ...publicRow } = row;
+    return {
+      asset: publicRow as AudioAsset,
+      campaign: store.campaigns[idx]!,
+      durationSeconds: input.durationSeconds,
+    };
   });
 }
 

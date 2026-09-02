@@ -24,9 +24,9 @@ export const CAMPAIGN_LEASE_MS = 4 * 60 * 1000;
 /** Stale SENDING reclaim window. */
 export const STALE_SENDING_MS = 15 * 60 * 1000;
 
-/** Default campaign ramp (only lowers volume vs line caps). */
+/** @deprecated Campaign ramp removed — per-line dailyCap is the only volume limit. Kept for old store rows. */
 export const DEFAULT_CAMPAIGN_RAMP = {
-  enabled: true,
+  enabled: false,
   startPerDay: 15,
   incrementPerDay: 10,
   ceilingPerDay: 100,

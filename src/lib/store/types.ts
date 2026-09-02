@@ -50,14 +50,18 @@ export type CampaignRecord = {
     sendWindowStart: number;
     sendWindowEnd: number;
     sendDays: number[];
-    timezoneMode: "RECIPIENT_LOCAL" | "FIXED";
+        timezoneMode: "RECIPIENT_LOCAL" | "FIXED";
     fixedTimezone?: string;
+    /** @deprecated Ignored — per-line dailyCap is the volume limit. */
     newLeadsPerDay: number;
     requireConsent: boolean;
     stopOnCallback: boolean;
     stopOnOptOut: boolean;
   };
-  /** Campaign ramp — can only LOWER volume vs line pool. */
+  /**
+   * @deprecated Ignored — volume is limited only by per-line dailyCap (warmup).
+   * Kept so older campaign rows / API clients don't break.
+   */
   ramp?: {
     enabled: boolean;
     startPerDay: number;

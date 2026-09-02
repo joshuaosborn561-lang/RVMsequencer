@@ -116,8 +116,8 @@ export function poolRemainingCapacity(lines: PickableLine[]): number {
     .reduce((sum, l) => sum + Math.max(0, l.dailyCap - l.sentToday), 0);
 }
 
-/** Warmbly: campaign ramp can only LOWER the effective daily new-lead budget. */
-export function campaignRampCeiling(input: {
+/** @deprecated Campaign ramp removed — always returns a no-op high ceiling. */
+export function campaignRampCeiling(_input: {
   enabled: boolean;
   startPerDay: number;
   incrementPerDay: number;
@@ -125,10 +125,5 @@ export function campaignRampCeiling(input: {
   activeDay: number;
   newLeadsPerDay: number;
 }): number {
-  if (!input.enabled) return input.newLeadsPerDay;
-  const ramped = Math.min(
-    input.ceilingPerDay,
-    input.startPerDay + input.incrementPerDay * Math.max(0, input.activeDay),
-  );
-  return Math.min(input.newLeadsPerDay, ramped);
+  return Number.MAX_SAFE_INTEGER;
 }

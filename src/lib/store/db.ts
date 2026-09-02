@@ -472,40 +472,77 @@ export async function addSuppression(input: {
   phoneE164: string;
   reason: string;
   source: SuppressionRecord["source"];
+  markDnc?: boolean;
+  alloMeta?: SuppressionRecord["alloMeta"];
 }): Promise<SuppressionRecord> {
   return mutateStore((store) => {
     const existing = store.suppressions.find(
       (s) => s.phoneE164 === input.phoneE164,
     );
-    if (existing) return existing;
+    if (existing) {
+      if (input.alloMeta) {
+        existing.alloMeta = { ...existing.alloMeta, ...input.alloMeta };
+      }
+      if (input.markDnc) {
+        for (const lead of store.leads) {
+          if (lead.phoneE164 === input.phoneE164) lead.dnc = true;
+        }
+      }
+      return existing;
+    }
     const row: SuppressionRecord = {
       id: `sup_${randomUUID().slice(0, 8)}`,
       phoneE164: input.phoneE164,
       reason: input.reason,
       source: input.source,
       createdAt: new Date().toISOString(),
+      ...(input.alloMeta ? { alloMeta: input.alloMeta } : {}),
     };
     store.suppressions.push(row);
     for (const lead of store.leads) {
       if (lead.phoneE164 === input.phoneE164) {
         lead.status = "SUPPRESSED";
         lead.suppressReason = input.reason;
-        lead.dnc = true;
+        if (input.markDnc) lead.dnc = true;
       }
     }
     return row;
   });
 }
 
+export async function attachAlloSuppressionMeta(
+  phoneE164: string,
+  meta: NonNullable<SuppressionRecord["alloMeta"]>,
+): Promise<void> {
+  await mutateStore((store) => {
+    const row = store.suppressions.find((s) => s.phoneE164 === phoneE164);
+    if (!row) return;
+    row.source = "ALLO";
+    row.alloMeta = {
+      ...row.alloMeta,
+      ...meta,
+      updatedAt: new Date().toISOString(),
+    };
+  });
+}
+
 export async function suppressLeadByPhone(
   phoneE164: string,
   reason: string,
-  opts?: { optOut?: boolean; markDnc?: boolean; source?: SuppressionRecord["source"] },
+  opts?: {
+    optOut?: boolean;
+    markDnc?: boolean;
+    source?: SuppressionRecord["source"];
+    alloMeta?: SuppressionRecord["alloMeta"];
+  },
 ): Promise<number> {
+  const markDnc = Boolean(opts?.markDnc || opts?.optOut);
   await addSuppression({
     phoneE164,
     reason,
     source: opts?.source ?? (opts?.optOut ? "SMS_STOP" : "MANUAL"),
+    markDnc,
+    alloMeta: opts?.alloMeta,
   });
   const n = await mutateStore((store) => {
     let count = 0;
@@ -513,7 +550,7 @@ export async function suppressLeadByPhone(
       if (lead.phoneE164 !== phoneE164) continue;
       lead.status = "SUPPRESSED";
       lead.suppressReason = reason;
-      if (opts?.markDnc || opts?.optOut) lead.dnc = true;
+      if (markDnc) lead.dnc = true;
       if (opts?.optOut) lead.consentStatus = "OPTED_OUT";
       count += 1;
     }

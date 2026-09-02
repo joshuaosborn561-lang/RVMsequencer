@@ -604,6 +604,39 @@ export const mcpTools: McpToolDef[] = [
     covers: ["src/app/api/suppress/route.ts"],
   },
   {
+    name: "suppression_sync_status",
+    description:
+      "Allo → RVM suppression sync status: last run, calls scanned, per-rule counts (allo_dnc / allo_tag / allo_conversation), undetermined count, cursor. Never returns phone numbers.",
+    method: "GET",
+    path: "/api/allo/sync",
+    auth: "cron",
+    inputSchema: { type: "object", properties: {} },
+    covers: ["src/app/api/allo/sync/route.ts"],
+  },
+  {
+    name: "suppression_sync_run",
+    description:
+      "Run Allo → RVM suppression sync now (hourly or full backfill). Requires cron secret. Prefer backfill once after deploy.",
+    method: "POST",
+    path: "/api/allo/sync",
+    body: true,
+    auth: "cron",
+    inputSchema: {
+      type: "object",
+      properties: {
+        backfill: {
+          type: "boolean",
+          description: "Walk full Allo history from 2020-01-01",
+        },
+        force: {
+          type: "boolean",
+          description: "Bypass hourly gate",
+        },
+      },
+    },
+    covers: ["src/app/api/allo/sync/route.ts"],
+  },
+  {
     name: "scrub_phones",
     description: "Run DNC scrub on a list of phones.",
     method: "POST",

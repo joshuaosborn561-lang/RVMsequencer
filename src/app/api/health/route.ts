@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { postgresEnabled, getPrisma } from "@/lib/db/prisma";
 import { redisEnabled, getRedis } from "@/lib/db/redis";
+import { isAlloSyncConfigured, isAlloSyncEnabled } from "@/lib/allo/client";
 
 export async function GET() {
   let postgres: "up" | "down" | "disabled" = "disabled";
@@ -26,12 +27,24 @@ export async function GET() {
     }
   }
 
+  const alloSyncEnabled = isAlloSyncEnabled();
+  const alloConfigured = isAlloSyncConfigured();
+  const alloSyncError =
+    alloSyncEnabled && !alloConfigured
+      ? "ALLO_SUPPRESSION_SYNC enabled but ALLO_API_KEY is missing"
+      : null;
+
   return NextResponse.json({
-    ok: true,
+    ok: !alloSyncError,
     app: "RVM Drop",
     time: new Date().toISOString(),
     postgres,
     redis,
     claimPath: postgres === "up" ? "SKIP_LOCKED" : "FILE_LOCK",
+    alloSync: {
+      enabled: alloSyncEnabled,
+      configured: alloConfigured,
+      error: alloSyncError,
+    },
   });
 }

@@ -761,6 +761,61 @@ export async function rebalanceCampaignSchedule(input: {
   return n;
 }
 
+const PENDING_DELIVERY = new Set(["", "queued"]);
+
+function isPendingDelivery(
+  deliveryStatus: string | null | undefined,
+): boolean {
+  return deliveryStatus == null || PENDING_DELIVERY.has(deliveryStatus);
+}
+
+/**
+ * Accepted sends still waiting on a provider receipt (queued / empty delivery).
+ * Oldest first. Used by tick campaign_result polling.
+ */
+export async function listPendingReceiptCandidates(input: {
+  now?: Date;
+  settleMs: number;
+  lookbackMs: number;
+  limit: number;
+}): Promise<ScheduledSendRecord[]> {
+  const now = input.now ?? new Date();
+  const settleBefore = new Date(now.getTime() - input.settleMs);
+  const lookbackAfter = new Date(now.getTime() - input.lookbackMs);
+  const take = Math.max(0, input.limit);
+
+  const prisma = getPrisma();
+  if (prisma) {
+    const rows = await prisma.scheduledSend.findMany({
+      where: {
+        status: "SENT",
+        providerMsgId: { not: null },
+        OR: [
+          { deliveryStatus: null },
+          { deliveryStatus: "queued" },
+          { deliveryStatus: "" },
+        ],
+        updatedAt: { lte: settleBefore, gte: lookbackAfter },
+      },
+      orderBy: { updatedAt: "asc" },
+      take,
+    });
+    return rows.filter((r) => r.providerMsgId).map(rowFromPrisma);
+  }
+
+  const q = await readFileQueue();
+  return q.sends
+    .filter((s) => {
+      if (s.status !== "SENT" || !s.providerMsgId) return false;
+      if (!isPendingDelivery(s.deliveryStatus)) return false;
+      const t = Date.parse(s.updatedAt);
+      if (!Number.isFinite(t)) return false;
+      return t <= settleBefore.getTime() && t >= lookbackAfter.getTime();
+    })
+    .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))
+    .slice(0, take);
+}
+
 export async function listScheduledForCampaign(
   campaignId: string,
 ): Promise<ScheduledSendRecord[]> {

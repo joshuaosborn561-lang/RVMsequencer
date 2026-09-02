@@ -671,7 +671,7 @@ export const mcpTools: McpToolDef[] = [
   {
     name: "sequencer_drain",
     description:
-      "Run sequencer tick (reconcile + drain ACTIVE campaigns). Also runs the daily from-number spam/blacklist check if due. Requires cron secret.",
+      "Run sequencer tick (reconcile + drain ACTIVE campaigns, then poll Slybroadcast campaign_result for pending receipts). Also runs the daily from-number spam/blacklist check if due. Requires cron secret.",
     method: "POST",
     path: "/api/sequencer/tick",
     body: true,
@@ -723,7 +723,7 @@ export const mcpTools: McpToolDef[] = [
   },
   {
     name: "audit_list",
-    description: "List append-only audit events (sends, skips, suppressions, seeds, FCR).",
+    description: "List append-only audit events (sends, skips, suppressions, seeds, FCR, receipt health).",
     method: "GET",
     path: "/api/audit",
     inputSchema: {

@@ -63,13 +63,16 @@ Import leads
 Launch ACTIVE
     → eagerScheduleCampaign: 1 ScheduledSend per lead × step
 Cron tick (every 5m)
-    → reputation (daily) → Allo sync (hourly) → reconcile → drain
+    → reputation (daily) → Allo sync (hourly) → reconcile → drain → receipt poll
 Drain
     → advance line warmups (once/UTC day)
     → inject seeds → bump seed runAt to now
     → for each ACTIVE campaign (≤50):
          lease → claim due rows (seeds first) → runAttempt → advance
-Webhook rvm-status
+Receipt poll (tick, after drain)
+    → Slybroadcast `c_option=campaign_result` for accepted sends still Pending/queued
+    → settle ~3m, batch cap 40; OK → delivered, Failure → failed
+Webhook rvm-status (same mapping)
     → deliveryStatus delivered|sent unlocks next step
     → failed|rejected|human_answered cancels later steps
 ```
@@ -100,10 +103,11 @@ Default batch per tick: **25** (API 1–200). Volume ceiling = **sum of line rem
 | Step N>1 claimable only if prior `deliveryStatus` ∈ `{delivered, sent}` | YES |
 | Prior `FAILED` / `CANCELLED` / `SUPPRESSED` → cancel later (`PRIOR_STEP_NOT_DELIVERED`) | YES |
 | Prior delivery `failed` / `rejected` / `human_answered` → cancel later | YES |
-| Provider **accept** alone is not enough for step 2 — wait for webhook `delivered`\|`sent` | YES |
+| Provider **accept** alone is not enough for step 2 — wait for webhook `delivered`\|`sent` **or** tick `campaign_result` with `dial_status=OK` | YES |
+| Confirmed drop = `dial_status` **OK** (or webhook `delivered`/`sent`). `Pending` is **not** confirmed | YES |
 | `delayDays` only offsets eager `runAt`; unlock still needs prior delivery | YES |
 
-Accept-time drain often sets `deliveryStatus: "queued"` until `/api/webhooks/rvm-status` updates it.
+Accept-time drain often sets `deliveryStatus: "queued"` and Supabase `rvm_drops.dial_status=Pending` until `/api/webhooks/rvm-status` **or** the tick receipt poll (`campaign_result`) updates them.
 
 ---
 
@@ -127,11 +131,13 @@ Every **5 minutes**, `POST /api/sequencer/tick`:
 2. **Allo suppression sync** (if key set; skip if last run &lt; ~55m) — never blocks drain on failure  
 3. **Reconcile** — surface ACTIVE work; stale claims reclaimed inside claim  
 4. **Drain** — warmups → seeds → claim/send  
+5. **Receipts** — poll Slybroadcast `campaign_result` for recent accepted sends still `Pending` / `queued` (settle ~3m so the gateway can settle; batch cap 40). Maps **OK → delivered**, **Failure → failed** via `reconcileProviderDelivery` (and patches `rvm_drops.dial_status`). Tick JSON includes `{ refreshed, ok, failed, stillPending }` under `receipts`. **Does not auto-pause.** May set `receipts.flag = RECEIPT_HEALTH` (and an audit event) if Failure rate is high (≥30% with ≥10 settled) or many rows stay Pending &gt;30m.  
 
 **Healthy day-to-day signals:**
 
 - Tick returns `mode: "drain"`; campaigns show fresh `lastDrainAt` / `lastDrainStats`
-- Queue moves `PENDING → CLAIMED → SENT`; webhooks move `queued → sent|delivered`
+- Queue moves `PENDING → CLAIMED → SENT`; receipts/webhooks move `queued → sent|delivered`
+- Confirmed drop = `dial_status` OK; `Pending` is not confirmed and should age out mid-day
 - Multi-step advances only after delivery unlock + `delayDays`
 - Seeds (if configured) appear first in the batch; once/UTC day per seed
 - Lines climb warmup caps once/UTC day (20→80); pool not mass-quarantined
@@ -356,7 +362,7 @@ Ops: create Allo tag **`do_not_call`**.
 
 ### Ongoing (healthy)
 - [ ] Tick every 5m; `lastDrainAt` moving
-- [ ] Webhooks unlocking multi-step
+- [ ] Receipts / webhooks unlocking multi-step (`dial_status` OK; Pending is not confirmed)
 - [ ] `suppression_sync_status` OK if Allo on
 - [ ] No surprise FLAGGED / quarantined pool (external CallTracer/Hiya only; unused DIDs not MIXED_HIGH)
 - [ ] Callbacks → Allo/Inbox; STOP suppresses
@@ -385,6 +391,11 @@ Ops: create Allo tag **`do_not_call`**.
 | Call forward timeout floor | 90s | Ops YES |
 | Campaign ramp / newLeadsPerDay | ignored | NO |
 | Org hard cap | unused | NO |
+| Receipt settle | 3m | Soft |
+| Receipt batch / tick | 40 | Soft |
+| Receipt lookback | 48h | Soft |
+| RECEIPT_HEALTH failure rate | ≥30% with ≥10 samples | Soft (flag only; no auto-pause) |
+| RECEIPT_HEALTH stale Pending | >30m on ≥10 rows this batch | Soft (flag only; no auto-pause) |
 
 ---
 

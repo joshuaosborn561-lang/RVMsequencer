@@ -37,3 +37,24 @@ export const DEFAULT_REQUIRE_FCR = false;
 
 /** API rate limit (requests / window). */
 export const API_RATE_LIMIT = { windowMs: 60_000, max: 120 };
+
+/** Wait after accept before polling Slybroadcast campaign_result. */
+export const RECEIPT_SETTLE_MS = 3 * 60 * 1000;
+
+/** Max campaign_result polls per sequencer tick. */
+export const RECEIPT_BATCH_CAP = 40;
+
+/** Only refresh receipts updated within this lookback. */
+export const RECEIPT_LOOKBACK_MS = 48 * 60 * 60 * 1000;
+
+/** RECEIPT_HEALTH: min settled samples before failure-rate flag. */
+export const RECEIPT_HEALTH_MIN_SAMPLES = 10;
+
+/** RECEIPT_HEALTH: Failure share among settled samples (flag only). */
+export const RECEIPT_HEALTH_FAILURE_RATE = 0.3;
+
+/** RECEIPT_HEALTH: Pending older than this counts as stale. */
+export const RECEIPT_STALE_PENDING_MS = 30 * 60 * 1000;
+
+/** RECEIPT_HEALTH: stale Pending rows in this tick's batch (flag only). */
+export const RECEIPT_STALE_PENDING_MIN = 10;

@@ -17,7 +17,8 @@ export type AuditAction =
   | "WARMUP_ADVANCED"
   | "SETTINGS_UPDATED"
   | "FCR_UPDATED"
-  | "QUIET_HOURS_APPLIED";
+  | "QUIET_HOURS_APPLIED"
+  | "RECEIPT_HEALTH";
 
 export type AuditEvent = {
   id: string;

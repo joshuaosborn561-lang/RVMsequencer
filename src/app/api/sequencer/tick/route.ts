@@ -10,6 +10,7 @@ import {
   drainActiveCampaigns,
   reconcileCampaigns,
 } from "@/lib/sequencer/drain";
+import { refreshPendingReceipts } from "@/lib/sequencer/refresh-receipts";
 import { runAttempt } from "@/lib/sequencer/run-attempt";
 import { isSuppressed } from "@/lib/store/db";
 import { runAlloSuppressionSync } from "@/lib/allo/sync";
@@ -88,6 +89,7 @@ const SingleBody = z.object({
 /**
  * Sequencer tick:
  * - Cron / `{ "drain": true, "limit": N }` → reconcile + drain ACTIVE campaigns
+ *   + poll Slybroadcast campaign_result for pending receipts
  * - Full lead+campaign body → single attempt (tests / manual)
  */
 export async function POST(req: Request) {
@@ -156,12 +158,24 @@ export async function POST(req: Request) {
     }
     const reconcile = await reconcileCampaigns();
     const result = await drainActiveCampaigns(limit);
+    let receipts = {
+      refreshed: 0,
+      ok: 0,
+      failed: 0,
+      stillPending: 0,
+    };
+    try {
+      receipts = await refreshPendingReceipts();
+    } catch (err) {
+      console.error("[tick] receipt refresh failed", err);
+    }
     return NextResponse.json({
       mode: "drain",
       reputation,
       alloSync,
       reconcile,
       ...result,
+      receipts,
     });
   }
 

@@ -6,7 +6,9 @@
  *
  * Optional (paid): Hiya when HIYA_API_KEY is set — closer to carrier labels
  *
- * Always also records an internal signal from our callback rates.
+ * Callback rates are monitoring metrics only. They never become MIXED_HIGH /
+ * FLAGGED and never drive degrade/quarantine. Never-sent DIDs stay UNKNOWN
+ * until an external check returns a label.
  */
 
 export type ReputationLabel =
@@ -16,12 +18,16 @@ export type ReputationLabel =
   | "FLAGGED"
   | "UNKNOWN";
 
-export type ReputationSource = "calltracer" | "hiya" | "internal" | "manual";
+/** Persisted / UI source of the spam label. Callback rates are not a source. */
+export type ReputationSource = "calltracer" | "hiya" | "manual";
+
+export type ReputationRiskHint = "Likely spam" | "Elevated" | "Clean" | "Unknown";
 
 export type ReputationResult = {
   e164: string;
   label: ReputationLabel;
   score?: number;
+  reportCount?: number;
   source: ReputationSource;
   flagged: boolean;
   details?: Record<string, unknown>;
@@ -39,11 +45,60 @@ function digitsOnly(e164: string): string {
   return e164.replace(/\D/g, "");
 }
 
-function labelFromSpamScore(score: number, reportCount: number): ReputationLabel {
+/** Map CallTracer spam_score + report total onto our labels. */
+export function labelFromSpamScore(
+  score: number,
+  reportCount: number,
+): ReputationLabel {
   if (score >= 70 || reportCount >= 10) return "FLAGGED";
   if (score >= 40 || reportCount >= 3) return "MIXED_HIGH";
   if (score >= 15 || reportCount >= 1) return "MIXED_LOW";
   return "UNFLAGGED";
+}
+
+/**
+ * Plain-English hint for operators. Score (when present) can raise the hint
+ * above the stored label so a stale UNFLAGGED + high score still warns.
+ */
+export function reputationRiskHint(
+  label: ReputationLabel,
+  score?: number | null,
+): ReputationRiskHint {
+  const s = typeof score === "number" && Number.isFinite(score) ? score : null;
+  if (label === "FLAGGED" || (s != null && s >= 70)) return "Likely spam";
+  if (
+    label === "MIXED_HIGH" ||
+    label === "MIXED_LOW" ||
+    (s != null && s >= 15)
+  ) {
+    return "Elevated";
+  }
+  if (label === "UNFLAGGED") return "Clean";
+  return "Unknown";
+}
+
+export function lineReputationView(input: {
+  reputationLabel: ReputationLabel;
+  reputationScore?: number | null;
+  reputationSource?: ReputationSource | null;
+  reputationReportCount?: number | null;
+  lastReputationCheckAt?: string | null;
+}): {
+  reputationLabel: ReputationLabel;
+  score: number | null;
+  source: ReputationSource | null;
+  reportCount: number | null;
+  lastReputationCheckAt: string | null;
+  riskHint: ReputationRiskHint;
+} {
+  return {
+    reputationLabel: input.reputationLabel,
+    score: input.reputationScore ?? null,
+    source: input.reputationSource ?? null,
+    reportCount: input.reputationReportCount ?? null,
+    lastReputationCheckAt: input.lastReputationCheckAt ?? null,
+    riskHint: reputationRiskHint(input.reputationLabel, input.reputationScore),
+  };
 }
 
 function normalizeHiyaLabel(raw: unknown): ReputationLabel {
@@ -59,6 +114,15 @@ function normalizeHiyaLabel(raw: unknown): ReputationLabel {
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function reportCountFromCallTracerBody(body: Record<string, unknown>): number {
+  const reports =
+    body.reports && typeof body.reports === "object"
+      ? (body.reports as Record<string, unknown>)
+      : body;
+  const total = reports.total;
+  return typeof total === "number" && Number.isFinite(total) ? total : 0;
 }
 
 /**
@@ -88,19 +152,23 @@ export async function checkCallTracerReputation(
         });
         continue;
       }
+      const record = body as Record<string, unknown>;
       const reports =
-        (body as { reports?: Record<string, unknown> }).reports ?? {};
+        (record.reports && typeof record.reports === "object"
+          ? (record.reports as Record<string, unknown>)
+          : {}) ?? {};
       const score =
         typeof reports.spam_score === "number" ? reports.spam_score : 0;
-      const total = typeof reports.total === "number" ? reports.total : 0;
+      const total = reportCountFromCallTracerBody(record);
       const label = labelFromSpamScore(score, total);
       out.push({
         e164,
         label,
         score,
+        reportCount: total,
         source: "calltracer",
         flagged: label === "FLAGGED" || label === "MIXED_HIGH",
-        details: body as Record<string, unknown>,
+        details: record,
       });
     } catch (err) {
       out.push({
@@ -163,10 +231,17 @@ export async function checkHiyaReputation(
     const label = normalizeHiyaLabel(
       r.status ?? r.label ?? r.reputation ?? r.reputationStatus,
     );
+    const reportCount =
+      typeof r.reportCount === "number"
+        ? r.reportCount
+        : typeof r.reports === "number"
+          ? r.reports
+          : undefined;
     byPhone.set(phone, {
       e164: phone.startsWith("+") ? phone : `+${phone.replace(/\D/g, "")}`,
       label,
       score: typeof r.score === "number" ? r.score : undefined,
+      reportCount,
       source: "hiya",
       flagged: label === "FLAGGED" || label === "MIXED_HIGH",
       details: r,
@@ -186,9 +261,9 @@ export async function checkHiyaReputation(
 }
 
 /**
- * Internal signal: if this DID's callback rate is &lt; 50% of pool average,
- * treat as degraded (doc auto-retire rule). Not a carrier spam label, but
- * a useful daily health check with no extra API.
+ * Callback-rate snapshot for ops insight only.
+ * Never returns MIXED_HIGH / FLAGGED — unused DIDs (rate 0) must not be
+ * branded as spam just because siblings in the pool have callbacks.
  */
 export function internalCallbackHealth(input: {
   e164: string;
@@ -196,22 +271,20 @@ export function internalCallbackHealth(input: {
   poolAvgCallbackRate7d: number;
 }): ReputationResult {
   const { e164, callbackRate7d, poolAvgCallbackRate7d } = input;
-  let label: ReputationLabel = "UNFLAGGED";
-  let flagged = false;
-  if (poolAvgCallbackRate7d > 0 && callbackRate7d < poolAvgCallbackRate7d * 0.5) {
-    label = "MIXED_HIGH";
-    flagged = true;
-  }
   return {
     e164,
-    label,
-    source: "internal",
-    flagged,
-    details: { callbackRate7d, poolAvgCallbackRate7d },
+    label: "UNFLAGGED",
+    source: "manual",
+    flagged: false,
+    details: {
+      callbackRate7d,
+      poolAvgCallbackRate7d,
+      monitoringOnly: true,
+    },
   };
 }
 
-/** Merge any number of reputation signals; worst label wins. */
+/** Merge external reputation signals; worst label wins. Do not pass internal metrics. */
 export function mergeReputationResults(
   ...results: Array<ReputationResult | undefined>
 ): ReputationResult {
@@ -220,7 +293,7 @@ export function mergeReputationResults(
     return {
       e164: "",
       label: "UNKNOWN",
-      source: "internal",
+      source: "manual",
       flagged: false,
     };
   }
@@ -238,10 +311,10 @@ export function mergeReputationResults(
   };
 }
 
-/** @deprecated prefer mergeReputationResults */
+/** @deprecated prefer mergeReputationResults — second arg is ignored for labels */
 export function mergeReputation(
   external: ReputationResult | undefined,
-  internal: ReputationResult,
+  _internal?: ReputationResult,
 ): ReputationResult {
-  return mergeReputationResults(external, internal);
+  return mergeReputationResults(external);
 }

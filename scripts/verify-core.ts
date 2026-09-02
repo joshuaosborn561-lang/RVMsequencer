@@ -14,6 +14,13 @@ import { humanizeSendAt } from "../src/lib/sequencer/jitter";
 import { checkRateLimit } from "../src/lib/security/rate-limit";
 import { evaluateCompliance, renderScript } from "../src/lib/compliance/gates";
 import { evaluateLineHealth } from "../src/lib/reputation/evaluate";
+import {
+  internalCallbackHealth,
+  labelFromSpamScore,
+  mergeReputation,
+  mergeReputationResults,
+  reputationRiskHint,
+} from "../src/lib/reputation/check";
 import { estimateRun, DELIVERY_SCENARIOS, TTS_SCENARIOS } from "../src/lib/cost/estimate";
 import { mockRvmProvider } from "../src/lib/providers/mock-rvm";
 import { timezoneFromPhone } from "../src/lib/timezone/from-phone";
@@ -184,12 +191,110 @@ assert.equal(
   "Hey Alex, this is Sam at Acme.",
 );
 
-// Reputation quarantine
+// Reputation quarantine from external FLAGGED
 const burned = evaluateLineHealth({
   spamLabel: "FLAGGED",
   attempts7d: 10,
 });
 assert.equal(burned.action, "quarantine");
+
+// Unused DID (0 attempts) must not be MIXED_HIGH from the internal callback path
+const unusedInternal = internalCallbackHealth({
+  e164: "+18173857803",
+  callbackRate7d: 0,
+  poolAvgCallbackRate7d: 0.04,
+});
+assert.equal(unusedInternal.label, "UNFLAGGED");
+assert.equal(unusedInternal.flagged, false);
+assert.notEqual(unusedInternal.label, "MIXED_HIGH");
+assert.notEqual(unusedInternal.label, "FLAGGED");
+
+const unusedHealth = evaluateLineHealth({
+  spamLabel: "UNFLAGGED",
+  attempts7d: 0,
+  callbackRate7d: 0,
+});
+assert.equal(unusedHealth.action, "keep");
+
+const unusedUnknown = evaluateLineHealth({
+  spamLabel: "UNKNOWN",
+  attempts7d: 0,
+  callbackRate7d: 0,
+});
+assert.equal(unusedUnknown.action, "keep");
+
+// Callback collapse must not degrade (display-only metric)
+const callbackOnly = evaluateLineHealth({
+  spamLabel: "UNFLAGGED",
+  attempts7d: 80,
+  callbackRate7d: 0,
+});
+assert.equal(callbackOnly.action, "keep");
+
+// CallTracer score thresholds
+assert.equal(labelFromSpamScore(0, 0), "UNFLAGGED");
+assert.equal(labelFromSpamScore(14, 0), "UNFLAGGED");
+assert.equal(labelFromSpamScore(15, 0), "MIXED_LOW");
+assert.equal(labelFromSpamScore(39, 1), "MIXED_LOW");
+assert.equal(labelFromSpamScore(40, 0), "MIXED_HIGH");
+assert.equal(labelFromSpamScore(10, 3), "MIXED_HIGH");
+assert.equal(labelFromSpamScore(70, 0), "FLAGGED");
+assert.equal(labelFromSpamScore(10, 10), "FLAGGED");
+
+// Merge without internal still works; unused internal must not worsen UNFLAGGED
+const mergedExternalOnly = mergeReputationResults({
+  e164: "+18175524412",
+  label: "UNFLAGGED",
+  score: 2,
+  reportCount: 0,
+  source: "calltracer",
+  flagged: false,
+});
+assert.equal(mergedExternalOnly.label, "UNFLAGGED");
+assert.equal(mergedExternalOnly.source, "calltracer");
+
+const mergedIgnoreInternal = mergeReputation(
+  {
+    e164: "+18176979217",
+    label: "UNFLAGGED",
+    score: 1,
+    source: "calltracer",
+    flagged: false,
+  },
+  unusedInternal,
+);
+assert.equal(mergedIgnoreInternal.label, "UNFLAGGED");
+assert.equal(mergedIgnoreInternal.source, "calltracer");
+
+const mergedHiyaWorse = mergeReputationResults(
+  {
+    e164: "+18177014205",
+    label: "UNFLAGGED",
+    score: 0,
+    source: "calltracer",
+    flagged: false,
+  },
+  {
+    e164: "+18177014205",
+    label: "MIXED_HIGH",
+    score: 55,
+    source: "hiya",
+    flagged: true,
+  },
+);
+assert.equal(mergedHiyaWorse.label, "MIXED_HIGH");
+assert.equal(mergedHiyaWorse.source, "hiya");
+assert.equal(
+  evaluateLineHealth({ spamLabel: "MIXED_HIGH", attempts7d: 0 }).action,
+  "degrade",
+);
+
+assert.equal(reputationRiskHint("FLAGGED", 10), "Likely spam");
+assert.equal(reputationRiskHint("UNFLAGGED", 80), "Likely spam");
+assert.equal(reputationRiskHint("MIXED_HIGH", 45), "Elevated");
+assert.equal(reputationRiskHint("MIXED_LOW", 20), "Elevated");
+assert.equal(reputationRiskHint("UNFLAGGED", 4), "Clean");
+assert.equal(reputationRiskHint("UNKNOWN"), "Unknown");
 
 // Slybroadcast monthly 2k + static recording reuse = $100 flat
 const slybroadcast = estimateRun({

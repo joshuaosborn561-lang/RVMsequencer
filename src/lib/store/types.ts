@@ -191,6 +191,16 @@ export type LineRecord = {
   sentTodayDate?: string;
   lastSentAt?: string;
   reputationLabel: "UNFLAGGED" | "MIXED_LOW" | "MIXED_HIGH" | "FLAGGED" | "UNKNOWN";
+  /** CallTracer spam_score (or Hiya score) from last external check. */
+  reputationScore?: number | null;
+  /** Who produced the stored spam label. */
+  reputationSource?: "calltracer" | "hiya" | "manual";
+  /** Crowd/carrier report count from last check when the source provides one. */
+  reputationReportCount?: number | null;
+  /** ISO timestamp of last CallTracer/Hiya check for this DID. */
+  lastReputationCheckAt?: string;
+  /** 7d callback/attempt rate — display only, never a spam label. */
+  callbackRate7d?: number | null;
   minGapSec?: number;
   /** Free Caller Registry / Voice Integrity registration complete. */
   registeredFcr?: boolean;

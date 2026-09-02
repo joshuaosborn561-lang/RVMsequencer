@@ -202,6 +202,9 @@ model PhoneLine {
   deliveryRate7d  Float?
   callbackRate7d  Float?
   reputationLabel ReputationLabel @default(UNKNOWN)
+  reputationScore Float?
+  reputationSource String?
+  reputationReportCount Int?
   lastReputationAt DateTime?
   lastSentAt      DateTime?
   /// Min seconds between deposits on this DID (mailbox spacing).

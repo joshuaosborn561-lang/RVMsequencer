@@ -432,7 +432,8 @@ export const mcpTools: McpToolDef[] = [
   },
   {
     name: "lines_list",
-    description: "List Twilio DID pool (caps, reputation, sent today).",
+    description:
+      "List Twilio DID pool (caps, sent today, reputation label/score/source/report count/last check, and spam-likelihood hint).",
     method: "GET",
     path: "/api/lines",
     inputSchema: { type: "object", properties: {} },
@@ -691,7 +692,7 @@ export const mcpTools: McpToolDef[] = [
   {
     name: "reputation_check",
     description:
-      "Daily spam/blacklist/health check for Twilio from-numbers (DIDs). Free CallTracer crowd spam score by default; Hiya if HIYA_API_KEY is set; plus internal callback-rate signal. Auto-quarantines FLAGGED / degrades MIXED_HIGH. Syncs to Supabase. Requires cron secret.",
+      "Spam check for Twilio from-numbers (DIDs). CallTracer crowd score by default; optional Hiya if HIYA_API_KEY is set. Callback rates are metrics only (never MIXED_HIGH). Quarantines FLAGGED / degrades MIXED_HIGH from external labels. GET returns persisted score/source/reports; POST or GET ?refresh=1 force-refreshes. Requires cron secret.",
     method: "POST",
     path: "/api/reputation/check",
     body: true,
@@ -702,6 +703,10 @@ export const mcpTools: McpToolDef[] = [
         force: {
           type: "boolean",
           description: "Run even if already checked in the last ~20 hours",
+        },
+        e164: {
+          type: "string",
+          description: "Check a single DID (E.164). Skips the daily gate.",
         },
       },
     },

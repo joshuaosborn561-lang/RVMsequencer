@@ -772,14 +772,12 @@ function ScheduleTab({
   const [start, setStart] = useState(String(s.sendWindowStart));
   const [end, setEnd] = useState(String(s.sendWindowEnd));
   const [tz, setTz] = useState(s.timezoneMode);
-  const [perDay, setPerDay] = useState(String(s.newLeadsPerDay));
   const [days, setDays] = useState(s.sendDays.join(","));
 
   useEffect(() => {
     setStart(String(s.sendWindowStart));
     setEnd(String(s.sendWindowEnd));
     setTz(s.timezoneMode);
-    setPerDay(String(s.newLeadsPerDay));
     setDays(s.sendDays.join(","));
   }, [s]);
 
@@ -824,13 +822,6 @@ function ScheduleTab({
             onChange={(e) => setDays(e.target.value)}
           />
         </Field>
-        <Field label="New leads / day">
-          <input
-            className={inputClass}
-            value={perDay}
-            onChange={(e) => setPerDay(e.target.value)}
-          />
-        </Field>
         <Field label="Timezone mode">
           <select
             className={inputClass}
@@ -844,6 +835,10 @@ function ScheduleTab({
           </select>
         </Field>
       </div>
+      <p className="mt-2 text-xs text-[var(--muted)]">
+        Daily volume is limited by each line&apos;s warmup cap (not a campaign-day
+        budget). Seed/canary numbers always drop first.
+      </p>
 
       <h3 className="mt-6 text-sm font-semibold uppercase tracking-wider text-[var(--muted)]">
         Campaign behavior
@@ -906,7 +901,6 @@ function ScheduleTab({
               sendWindowStart: Number(start) || 9,
               sendWindowEnd: Number(end) || 20,
               timezoneMode: tz,
-              newLeadsPerDay: Number(perDay) || 200,
               sendDays: days
                 .split(",")
                 .map((d) => Number(d.trim()))

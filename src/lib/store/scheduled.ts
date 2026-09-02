@@ -175,19 +175,35 @@ export async function claimScheduledSends(input: {
   limit: number;
   owner: string;
   now?: Date;
+  /** Phones claimed first (seed/canary) before other due sends. */
+  priorityPhones?: string[];
 }): Promise<ScheduledSendRecord[]> {
   const now = input.now ?? new Date();
   if (input.limit <= 0) return [];
+  const priorityPhones = input.priorityPhones ?? [];
 
   const prisma = getPrisma();
   if (prisma && postgresEnabled()) {
     try {
-      return await claimPostgres(prisma, input.campaignId, input.limit, input.owner, now);
+      return await claimPostgres(
+        prisma,
+        input.campaignId,
+        input.limit,
+        input.owner,
+        now,
+        priorityPhones,
+      );
     } catch (err) {
       console.error("pg_claim_failed_fallback_file", err);
     }
   }
-  return claimFile(input.campaignId, input.limit, input.owner, now);
+  return claimFile(
+    input.campaignId,
+    input.limit,
+    input.owner,
+    now,
+    priorityPhones,
+  );
 }
 
 function findPriorStep(
@@ -210,6 +226,7 @@ async function claimPostgres(
   limit: number,
   owner: string,
   now: Date,
+  priorityPhones: string[],
 ): Promise<ScheduledSendRecord[]> {
   const staleBefore = new Date(now.getTime() - STALE_SENDING_MS);
 
@@ -248,7 +265,7 @@ async function claimPostgres(
   `;
 
   const claimed = await prisma.$transaction(async (tx) => {
-    // Step 1 due → eligible; step N+ requires prior deliveryStatus delivered|sent
+    // Seed phones first, then earliest runAt
     const due = await tx.$queryRaw<Array<{ id: string }>>`
       SELECT s.id FROM "ScheduledSend" s
       WHERE s."campaignId" = ${campaignId}
@@ -264,11 +281,16 @@ async function claimPostgres(
               AND p."deliveryStatus" IN ('delivered', 'sent')
           )
         )
-      ORDER BY s."runAt" ASC
+      ORDER BY
+        CASE
+          WHEN s."phoneE164" = ANY(${priorityPhones}::text[]) THEN 0
+          ELSE 1
+        END ASC,
+        s."runAt" ASC
       LIMIT ${limit}
       FOR UPDATE OF s SKIP LOCKED
     `;
-    if (due.length === 0) return [];
+    if (due.length === 0) return [] as ScheduledSendRecord[];
     const ids = due.map((d) => d.id);
     await tx.scheduledSend.updateMany({
       where: { id: { in: ids } },
@@ -279,10 +301,15 @@ async function claimPostgres(
         attemptCount: { increment: 1 },
       },
     });
-    return tx.scheduledSend.findMany({ where: { id: { in: ids } } });
+    const rows = await tx.scheduledSend.findMany({ where: { id: { in: ids } } });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    return ids
+      .map((id) => byId.get(id))
+      .filter((r): r is NonNullable<typeof r> => Boolean(r))
+      .map(rowFromPrisma);
   });
 
-  return claimed.map(rowFromPrisma);
+  return claimed;
 }
 
 async function claimFile(
@@ -290,12 +317,14 @@ async function claimFile(
   limit: number,
   owner: string,
   now: Date,
+  priorityPhones: string[],
 ): Promise<ScheduledSendRecord[]> {
   return withStoreLock(async () => {
     const q = await readFileQueue();
     const claimed: ScheduledSendRecord[] = [];
     const nowMs = now.getTime();
     const iso = now.toISOString();
+    const priority = new Set(priorityPhones);
 
     for (const s of q.sends) {
       if (s.campaignId !== campaignId) continue;
@@ -328,24 +357,31 @@ async function claimFile(
       }
     }
 
-    for (const s of q.sends) {
-      if (claimed.length >= limit) break;
-      if (s.campaignId !== campaignId) continue;
-      if (s.status !== "PENDING") continue;
-      if (Date.parse(s.runAt) > nowMs) continue;
-
-      if (s.stepPosition > 1) {
-        const prior = findPriorStep(
-          q.sends,
-          s.campaignId,
-          s.leadId,
-          s.stepPosition,
-        );
-        if (!priorStepUnlocksNext(prior?.deliveryStatus)) {
-          continue;
+    const eligible = q.sends
+      .filter((s) => {
+        if (s.campaignId !== campaignId) return false;
+        if (s.status !== "PENDING") return false;
+        if (Date.parse(s.runAt) > nowMs) return false;
+        if (s.stepPosition > 1) {
+          const prior = findPriorStep(
+            q.sends,
+            s.campaignId,
+            s.leadId,
+            s.stepPosition,
+          );
+          if (!priorStepUnlocksNext(prior?.deliveryStatus)) return false;
         }
-      }
+        return true;
+      })
+      .sort((a, b) => {
+        const ap = priority.has(a.phoneE164) ? 0 : 1;
+        const bp = priority.has(b.phoneE164) ? 0 : 1;
+        if (ap !== bp) return ap - bp;
+        return Date.parse(a.runAt) - Date.parse(b.runAt);
+      });
 
+    for (const s of eligible) {
+      if (claimed.length >= limit) break;
       s.status = "CLAIMED";
       s.claimOwner = owner;
       s.claimedAt = iso;
@@ -506,6 +542,45 @@ export async function deferScheduledSend(
     claimedAt: undefined,
     lastError: reason,
   });
+}
+
+/** Pull PENDING sends for these phones to the front of today's queue (seeds). */
+export async function bumpPhonesDueNow(
+  campaignId: string,
+  phones: string[],
+  now = new Date(),
+): Promise<number> {
+  if (phones.length === 0) return 0;
+  const set = new Set(phones);
+  const iso = now.toISOString();
+  let n = 0;
+  await withStoreLock(async () => {
+    const q = await readFileQueue();
+    for (const s of q.sends) {
+      if (s.campaignId !== campaignId) continue;
+      if (s.status !== "PENDING") continue;
+      if (!set.has(s.phoneE164)) continue;
+      if (Date.parse(s.runAt) <= now.getTime()) continue;
+      s.runAt = iso;
+      s.updatedAt = iso;
+      n += 1;
+    }
+    await writeFileQueue(q);
+  });
+  const prisma = getPrisma();
+  if (prisma) {
+    const res = await prisma.scheduledSend.updateMany({
+      where: {
+        campaignId,
+        phoneE164: { in: phones },
+        status: "PENDING",
+        runAt: { gt: now },
+      },
+      data: { runAt: now, updatedAt: now },
+    });
+    n = Math.max(n, res.count);
+  }
+  return n;
 }
 
 export async function cancelScheduledForLead(

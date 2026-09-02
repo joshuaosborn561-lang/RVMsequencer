@@ -8,7 +8,7 @@ import {
   shouldGiveUp,
 } from "@/lib/sequencer/backoff";
 import { humanizeSendAt } from "@/lib/sequencer/jitter";
-import { campaignRampCeiling } from "@/lib/sequencer/line-picker";
+import { poolRemainingCapacity } from "@/lib/sequencer/line-picker";
 import {
   poolExhausted,
   rebalanceOnCapacityExhausted,
@@ -50,6 +50,7 @@ import {
   countPendingScheduled,
   deferScheduledSend,
   eagerScheduleCampaign,
+  bumpPhonesDueNow,
   updateScheduledSend,
 } from "@/lib/store/scheduled";
 import type { CampaignRecord, LeadRecord, LineRecord } from "@/lib/store/types";
@@ -84,13 +85,6 @@ function linesForCampaign(
     .map((l) => ({ ...l, minGapSec: l.minGapSec ?? minGapSec }));
 }
 
-function activeDay(campaign: CampaignRecord, now: Date): number {
-  const activated = campaign.ramp?.activatedAt
-    ? Date.parse(campaign.ramp.activatedAt)
-    : Date.parse(campaign.updatedAt);
-  return Math.max(0, Math.floor((now.getTime() - activated) / 86_400_000));
-}
-
 function stepFor(
   campaign: CampaignRecord,
   position: number,
@@ -100,7 +94,8 @@ function stepFor(
 
 /**
  * Hardened multi-step drain: SKIP LOCKED scheduled sends, leases, suppression,
- * line spacing, sticky DID, ramp, org cap, rebalance, auto-pause.
+ * line spacing, sticky DID, per-line caps, rebalance, auto-pause.
+ * Volume is limited only by per-line dailyCap (warmup) — no campaign-day cap.
  */
 export async function drainActiveCampaigns(
   limit = 25,
@@ -190,30 +185,45 @@ export async function drainActiveCampaigns(
       }
 
       const sentToday = await countSentToday(campaign.id, now);
-      const rampDay = activeDay(campaign, now);
-      const budget = campaignRampCeiling({
-        enabled: Boolean(campaign.ramp?.enabled),
-        startPerDay: campaign.ramp?.startPerDay ?? 25,
-        incrementPerDay: campaign.ramp?.incrementPerDay ?? 25,
-        ceilingPerDay: campaign.ramp?.ceilingPerDay ?? 200,
-        activeDay: rampDay,
-        newLeadsPerDay: campaign.schedule.newLeadsPerDay,
-      });
-      const remainingToday = Math.max(0, budget - sentToday);
-      if (remainingToday <= 0) continue;
+      // No campaign-day budget — only per-line dailyCap + this tick's remaining slots
+      const leads = await listLeads(campaign.id);
+      const seedPhones = leads
+        .filter(
+          (l) => l.custom?.isSeed === "true" || Boolean(l.custom?.seedId),
+        )
+        .map((l) => l.phoneE164);
+      if (seedPhones.length > 0) {
+        await bumpPhonesDueNow(campaign.id, seedPhones, now);
+      }
 
-      const batch = Math.min(limit - out.claimed, remainingToday);
+      const poolLeft = poolRemainingCapacity(
+        lines.map((l) => ({
+          id: l.id,
+          e164: l.e164,
+          areaCode: l.areaCode,
+          status: l.status,
+          dailyCap: l.dailyCap,
+          sentToday: l.sentToday,
+          reputationLabel: l.reputationLabel,
+          warmupDay: l.warmupDay,
+          lastSentAt: l.lastSentAt,
+          minGapSec: l.minGapSec,
+          registeredFcr: l.registeredFcr,
+        })),
+      );
+      if (poolLeft <= 0) continue;
+
+      const batch = Math.min(limit - out.claimed, poolLeft);
       const claimed = await claimScheduledSends({
         campaignId: campaign.id,
         limit: batch,
         owner,
         now,
+        priorityPhones: seedPhones,
       });
       out.claimed += claimed.length;
 
-      const leadsById = new Map(
-        (await listLeads(campaign.id)).map((l) => [l.id, l]),
-      );
+      const leadsById = new Map(leads.map((l) => [l.id, l]));
 
       let campaignSent = 0;
       let campaignSkipped = 0;
@@ -240,20 +250,19 @@ export async function drainActiveCampaigns(
           continue;
         }
 
+        const isSeed =
+          lead.custom?.isSeed === "true" || Boolean(lead.custom?.seedId);
         const jittered = humanizeSendAt(now, {
           salt: `${sch.leadId}:${sch.stepPosition}`,
-          maxJitterSec: immediate ? 0 : undefined,
+          maxJitterSec: immediate || isSeed ? 0 : undefined,
           windowHours: Math.max(
             1,
             campaign.schedule.sendWindowEnd - campaign.schedule.sendWindowStart,
           ),
-          dailyCap: Math.max(
-            1,
-            ...lines.map((l) => l.dailyCap),
-            campaign.schedule.newLeadsPerDay,
-          ),
+          dailyCap: Math.max(1, ...lines.map((l) => l.dailyCap)),
         });
-        if (!immediate && jittered.getTime() > now.getTime() + 5_000) {
+        // Seeds always send first — never defer them for jitter pacing
+        if (!immediate && !isSeed && jittered.getTime() > now.getTime() + 5_000) {
           await deferScheduledSend(sch.id, jittered, "JITTER_DEFER");
           campaignSkipped += 1;
           out.skipped += 1;
@@ -607,9 +616,6 @@ export async function drainActiveCampaigns(
           skipped: campaignSkipped,
           failed: campaignFailed,
         },
-        ramp: campaign.ramp
-          ? { ...campaign.ramp, activeDay: rampDay }
-          : campaign.ramp,
         ...(pending === 0 && campaignSent + sentToday > 0
           ? { status: "COMPLETED" as const }
           : {}),
@@ -644,19 +650,30 @@ async function injectSeedsIntoActiveCampaigns(now: Date, limit: number) {
           consentStatus: "UNKNOWN" as const,
         };
       });
-    if (toAdd.length === 0) continue;
-    await importLeads(campaign.id, toAdd, { mode: "append" });
-    const leads = await listLeads(campaign.id);
-    await eagerScheduleCampaign({ campaign, leads });
-    await appendAudit({
-      action: "SEED_INJECTED",
-      actor: "cron",
-      entityType: "campaign",
-      entityId: campaign.id,
-      campaignId: campaign.id,
-      clientId: campaign.clientId,
-      detail: { phones: toAdd.map((t) => t.phoneE164) },
-    });
+    // Always bump already-injected seeds to the front of today's queue
+    const seedPhones = [
+      ...toAdd.map((t) => t.phoneE164),
+      ...existing
+        .filter((l) => l.custom?.isSeed === "true" || Boolean(l.custom?.seedId))
+        .map((l) => l.phoneE164),
+    ];
+    if (toAdd.length > 0) {
+      await importLeads(campaign.id, toAdd, { mode: "append" });
+      const leads = await listLeads(campaign.id);
+      await eagerScheduleCampaign({ campaign, leads, now });
+      await appendAudit({
+        action: "SEED_INJECTED",
+        actor: "cron",
+        entityType: "campaign",
+        entityId: campaign.id,
+        campaignId: campaign.id,
+        clientId: campaign.clientId,
+        detail: { phones: toAdd.map((t) => t.phoneE164) },
+      });
+    }
+    if (seedPhones.length > 0) {
+      await bumpPhonesDueNow(campaign.id, [...new Set(seedPhones)], now);
+    }
   }
 }
 

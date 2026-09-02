@@ -35,16 +35,16 @@ Ask: **“Reuse a saved recording, open a phone recorder link, give me a public 
 
 ### 4) Volume & schedule walkthrough
 Ask one by one (offer defaults from preferences):
-- New leads / day → `schedule.newLeadsPerDay` (default 200 or prefs)
+- New leads / day → removed (volume = sum of line dailyCaps / warmup only)
 - Send window hours → `sendWindowStart` / `sendWindowEnd` (default 9–20)
 - Days → `sendDays` (default Mon–Fri `[1,2,3,4,5]`)
 - Timezone → `RECIPIENT_LOCAL` unless they want FIXED
 - Org hard cap → not used (per-line dailyCap only)
 - Max 2 attempts per contact per day (built-in)
-- Optional ramp → `ramp: { enabled, startPerDay, incrementPerDay, ceilingPerDay }`
+- Campaign ramp → removed; do not set `ramp` / `newLeadsPerDay` as a volume gate
 - Call forward for callbacks → `settings_update` `{ callForwardToE164, callForwardTimeoutSec: 90 }` (must exceed Allo ring time; Twimlets ~20s causes "dropped while ringing").
 
-Then `campaigns_update` with `schedule` (+ `ramp` if used) and confirm the summary.
+Then `campaigns_update` with `schedule` and confirm the summary.
 
 ### 5) Launch
 - Recap: lead count, audio, lines + caps, daily volume, window.
@@ -59,7 +59,7 @@ Then `campaigns_update` with `schedule` (+ `ramp` if used) and confirm the summa
 - Allo call outcomes → suppression: runs hourly on sequencer cron. Check `suppression_sync_status` (per-rule counts, no phones). One-shot history: `suppression_sync_run` `{ backfill: true }` after `ALLO_API_KEY` is set. Create Allo tag `do_not_call` so Rule A is not only text-inference.
 - From-number spam check: `reputation_check` `{ force: true }` (also runs automatically once/day via sequencer cron). Report any FLAGGED / quarantined DIDs.
 - Mark DIDs FCR-registered after Free Caller Registry / Voice Integrity: `lines_update` `{ e164, registeredFcr: true }`. Optionally enforce with `settings_update` `{ requireFcrRegistration: true }`.
-- Seed/canary numbers: `seeds_upsert` then daily inject verifies delivery.
+- Seed/canary numbers: `seeds_upsert` then daily inject verifies delivery. Seeds always claim/send before regular leads.
 - Quiet hours: `quiet_hours_list` (federal + state clamps auto-applied to send windows).
 
 ## Launch blockers (tell user clearly)

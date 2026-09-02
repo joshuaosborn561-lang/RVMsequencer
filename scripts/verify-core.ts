@@ -117,7 +117,7 @@ const gapped = pickLine(
 );
 assert.equal(gapped?.id, "cool");
 
-// Ramp can only lower vs newLeadsPerDay
+// Campaign ramp removed — per-line dailyCap is the only volume limit
 assert.equal(
   campaignRampCeiling({
     enabled: true,
@@ -127,7 +127,7 @@ assert.equal(
     activeDay: 0,
     newLeadsPerDay: 200,
   }),
-  25,
+  Number.MAX_SAFE_INTEGER,
 );
 assert.equal(
   campaignRampCeiling({
@@ -138,7 +138,7 @@ assert.equal(
     activeDay: 10,
     newLeadsPerDay: 50,
   }),
-  50,
+  Number.MAX_SAFE_INTEGER,
 );
 
 // Jitter is deterministic for a salt and moves forward

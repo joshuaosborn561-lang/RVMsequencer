@@ -135,7 +135,8 @@ export const mcpTools: McpToolDef[] = [
             fixedTimezone: { type: "string" },
             newLeadsPerDay: {
               type: "integer",
-              description: "Max NEW leads to start per UTC day (ask user)",
+              description:
+                "Deprecated — ignored. Volume is limited by per-line dailyCap only.",
             },
             requireConsent: { type: "boolean" },
             stopOnCallback: { type: "boolean" },
@@ -144,6 +145,8 @@ export const mcpTools: McpToolDef[] = [
         },
         ramp: {
           type: "object",
+          description:
+            "Deprecated — ignored. Per-line warmup dailyCap is the only volume limit.",
           properties: {
             enabled: { type: "boolean" },
             startPerDay: { type: "integer" },

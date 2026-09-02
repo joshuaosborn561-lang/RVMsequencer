@@ -7,7 +7,6 @@ import {
   nextFailureEligibleAt,
   shouldGiveUp,
 } from "@/lib/sequencer/backoff";
-import { humanizeSendAt } from "@/lib/sequencer/jitter";
 import { poolRemainingCapacity } from "@/lib/sequencer/line-picker";
 import {
   poolExhausted,
@@ -252,22 +251,9 @@ export async function drainActiveCampaigns(
 
         const isSeed =
           lead.custom?.isSeed === "true" || Boolean(lead.custom?.seedId);
-        const jittered = humanizeSendAt(now, {
-          salt: `${sch.leadId}:${sch.stepPosition}`,
-          maxJitterSec: immediate || isSeed ? 0 : undefined,
-          windowHours: Math.max(
-            1,
-            campaign.schedule.sendWindowEnd - campaign.schedule.sendWindowStart,
-          ),
-          dailyCap: Math.max(1, ...lines.map((l) => l.dailyCap)),
-        });
-        // Seeds always send first — never defer them for jitter pacing
-        if (!immediate && !isSeed && jittered.getTime() > now.getTime() + 5_000) {
-          await deferScheduledSend(sch.id, jittered, "JITTER_DEFER");
-          campaignSkipped += 1;
-          out.skipped += 1;
-          continue;
-        }
+        // Soft jitter is applied once at eager schedule. Claimed rows are
+        // already due (runAt <= now) — never re-humanize or salt-based
+        // jitter (>5s for almost every lead) defers them forever.
 
         const already = await findSentAttemptForStep(
           campaign.id,

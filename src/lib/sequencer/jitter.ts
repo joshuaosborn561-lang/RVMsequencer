@@ -1,6 +1,25 @@
 import { SEND_JITTER_MAX_SEC } from "@/lib/hardening/constants";
 
 /**
+ * Soft jitter paces **first enqueue** only. Claimed rows are already due
+ * (`runAt <= now`); re-applying `humanizeSendAt(now)` every tick defers
+ * forever because salt-based jitter is almost always >5s.
+ *
+ * Seeds and send-now skip jitter entirely.
+ */
+export function shouldDeferClaimedSendForJitter(input: {
+  immediate?: boolean;
+  isSeed?: boolean;
+  runAt: Date | string | number;
+  now: Date;
+}): boolean {
+  if (input.immediate || input.isSeed) return false;
+  const runAtMs = new Date(input.runAt).getTime();
+  if (!Number.isFinite(runAtMs)) return false;
+  return runAtMs > input.now.getTime();
+}
+
+/**
  * Humanize send timing.
  * Prefer pacing-based ±40% of ideal interval (window ÷ dailyCap);
  * fall back to fixed SEND_JITTER_MAX_SEC.

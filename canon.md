@@ -77,8 +77,8 @@ Webhook rvm-status
 ### Eager schedule
 
 - Skip leads: `dnc`, `OPTED_OUT`, `SUPPRESSED`
-- Step 1 `runAt = now`
-- Step N>1: `runAt = now + Σ delayDays` (cumulative, ms)
+- Step 1 `runAt = now` (+ soft jitter except seeds)
+- Step N>1: `runAt = now + Σ delayDays` (cumulative, ms; + same enqueue jitter)
 - Idempotency key: `{campaignId}_{leadId}_step{N}` — re-schedule is safe
 
 ### Claim → send → advance
@@ -148,10 +148,10 @@ Every **5 minutes**, `POST /api/sequencer/tick`:
 | Outside send window / days | Skip / defer to next eligible |
 | Daily frequency cap (default 2) | Defer **~6h** (not permanent suppress) |
 | Line min gap / pool empty | Defer; rebalance pending `runAt` (≥60s, often gap+5s or **15m**) |
-| Humanized jitter | Soft pace inside window; **seeds and send-now skip jitter** |
+| Humanized jitter | Soft pace **at eager schedule / first enqueue**; **seeds and send-now skip**. Drain does **not** re-defer already-due rows (`runAt <= now`) for jitter. |
 | Mid-batch no line | Defer **15m** `NO_LINE_CAPACITY` |
 
-Jitter: ~40% of `(windowHours×3600 / dailyCap)`, clamped 30s–45m; fallback max 90s; avoid exact :00/:30.
+Jitter: applied once when creating the ScheduledSend (~40% of `(windowHours×3600 / dailyCap)`, clamped 30s–45m; fallback max 90s; avoid exact :00/:30). Already-due claimed rows send (still respect window, DNC, line gap, caps).
 
 ---
 

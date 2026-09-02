@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { getPrisma, postgresEnabled } from "@/lib/db/prisma";
 import { STALE_SENDING_MS } from "@/lib/hardening/constants";
+import { humanizeSendAt } from "@/lib/sequencer/jitter";
 import type { CampaignRecord, LeadRecord } from "@/lib/store/types";
 import {
   priorStepBlocksSequence,
@@ -78,6 +79,8 @@ export async function eagerScheduleCampaign(input: {
   campaign: CampaignRecord;
   leads: LeadRecord[];
   now?: Date;
+  /** Effective line dailyCap for enqueue pacing. Omit → fallback max 90s. */
+  dailyCap?: number;
 }): Promise<{ created: number; existing: number }> {
   const now = input.now ?? new Date();
   const steps = [...input.campaign.steps].sort((a, b) => a.position - b.position);
@@ -92,6 +95,8 @@ export async function eagerScheduleCampaign(input: {
     ) {
       continue;
     }
+    const isSeed =
+      lead.custom?.isSeed === "true" || Boolean(lead.custom?.seedId);
     let offsetMs = 0;
     for (const step of steps) {
       if (step.position > 1) {
@@ -102,7 +107,20 @@ export async function eagerScheduleCampaign(input: {
         lead.id,
         step.position,
       );
-      const iso = new Date(now.getTime() + offsetMs).toISOString();
+      const base = new Date(now.getTime() + offsetMs);
+      // Pace once at enqueue. Seeds skip. Drain must not re-jitter due rows.
+      const runAt = isSeed
+        ? base
+        : humanizeSendAt(base, {
+            salt: `${lead.id}:${step.position}`,
+            windowHours: Math.max(
+              1,
+              input.campaign.schedule.sendWindowEnd -
+                input.campaign.schedule.sendWindowStart,
+            ),
+            dailyCap: input.dailyCap,
+          });
+      const iso = runAt.toISOString();
       rows.push({
         id: `sch_${randomUUID().slice(0, 10)}`,
         campaignId: input.campaign.id,

@@ -10,7 +10,10 @@ import {
   pickLine,
   poolRemainingCapacity,
 } from "../src/lib/sequencer/line-picker";
-import { humanizeSendAt } from "../src/lib/sequencer/jitter";
+import {
+  humanizeSendAt,
+  shouldDeferClaimedSendForJitter,
+} from "../src/lib/sequencer/jitter";
 import { checkRateLimit } from "../src/lib/security/rate-limit";
 import { evaluateCompliance, renderScript } from "../src/lib/compliance/gates";
 import { evaluateLineHealth } from "../src/lib/reputation/evaluate";
@@ -154,6 +157,69 @@ const j1 = humanizeSendAt(base, { salt: "lead_a" });
 const j2 = humanizeSendAt(base, { salt: "lead_a" });
 assert.equal(j1.getTime(), j2.getTime());
 assert.ok(j1.getTime() >= base.getTime());
+
+// 8h window / dailyCap 80 → max jitter ~144s. Almost every salt is >5s
+// (the old drain threshold). Already-due rows must not re-defer.
+{
+  const dueNow = new Date("2026-09-02T18:00:00.000Z");
+  let highSalt = "lead_stuck:1";
+  for (const s of [
+    "lead_stuck:1",
+    "lead_a:1",
+    "lead_b:1",
+    "cmp_1aeda8fe:1",
+  ]) {
+    const j = humanizeSendAt(dueNow, {
+      salt: s,
+      windowHours: 8,
+      dailyCap: 80,
+    });
+    if (j.getTime() > dueNow.getTime() + 5_000) {
+      highSalt = s;
+      break;
+    }
+  }
+  const wouldDefer = humanizeSendAt(dueNow, {
+    salt: highSalt,
+    windowHours: 8,
+    dailyCap: 80,
+  });
+  assert.ok(
+    wouldDefer.getTime() > dueNow.getTime() + 5_000,
+    "precondition: salt exceeds the old 5s JITTER_DEFER threshold",
+  );
+  assert.equal(
+    shouldDeferClaimedSendForJitter({
+      runAt: dueNow,
+      now: dueNow,
+    }),
+    false,
+    "already-due row must not re-defer for jitter",
+  );
+  assert.equal(
+    shouldDeferClaimedSendForJitter({
+      runAt: new Date(dueNow.getTime() - 60_000),
+      now: dueNow,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldDeferClaimedSendForJitter({
+      immediate: true,
+      runAt: new Date(dueNow.getTime() + 60_000),
+      now: dueNow,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldDeferClaimedSendForJitter({
+      isSeed: true,
+      runAt: new Date(dueNow.getTime() + 60_000),
+      now: dueNow,
+    }),
+    false,
+  );
+}
 
 
 // Compliance hard gates
@@ -347,6 +413,12 @@ assert.equal(timezoneFromPhone("+12125550123"), "America/New_York");
 assert.equal(timezoneFromPhone("+16025550123"), "America/Phoenix");
 
 async function main() {
+  const { mkdtemp } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const path = await import("node:path");
+  process.env.DATA_DIR = await mkdtemp(path.join(tmpdir(), "rvm-verify-"));
+  process.env.RVM_PROVIDER = "mock";
+
   // Rate limit trips after max (async — Redis or memory)
   {
     const rlKey = `verify_${Date.now()}`;
@@ -362,9 +434,12 @@ async function main() {
     );
   }
 
-  const { eagerScheduleCampaign, claimScheduledSends } = await import(
-    "../src/lib/store/scheduled"
-  );
+  const {
+    eagerScheduleCampaign,
+    claimScheduledSends,
+    listScheduledForCampaign,
+    updateScheduledSend,
+  } = await import("../src/lib/store/scheduled");
   const { poolExhausted } = await import("../src/lib/sequencer/rebalance");
   const { stepIdempotencyKey } = await import(
     "../src/lib/store/scheduled-types"
@@ -425,11 +500,19 @@ async function main() {
     `${campId}_${leadId}_step2`,
   );
 
+  const queued = await listScheduledForCampaign(camp.id);
+  const step1Queued = queued.find((s) => s.stepPosition === 1);
+  assert.ok(step1Queued, "step 1 must be enqueued");
+  assert.ok(
+    Date.parse(step1Queued.runAt) >= Date.parse("2026-08-01T12:00:00.000Z"),
+    "enqueue jitter must not move runAt backward",
+  );
+
   const claimed = await claimScheduledSends({
     campaignId: camp.id,
     limit: 10,
     owner: "verify",
-    now: new Date("2026-08-01T12:00:00.000Z"),
+    now: new Date(step1Queued.runAt),
   });
   assert.equal(claimed.length, 1);
   assert.equal(claimed[0]?.stepPosition, 1);
@@ -447,7 +530,6 @@ async function main() {
     "step 2 must wait for prior delivery",
   );
 
-  const { updateScheduledSend } = await import("../src/lib/store/scheduled");
   assert.ok(claimed[0]?.id);
   await updateScheduledSend(claimed[0]!.id, {
     status: "SENT",
@@ -648,6 +730,121 @@ async function main() {
   assert.equal(shouldGiveUp(MAX_SEND_ATTEMPTS), true);
   const nxt = nextFailureEligibleAt(1, new Date("2026-08-01T00:00:00.000Z"));
   assert.ok(nxt.getTime() > Date.parse("2026-08-01T00:00:00.000Z"));
+
+  // Subsequent drain tick: already-due PENDING must not JITTER_DEFER.
+  {
+    const { createCampaign, updateCampaign, importLeads, listLeads } =
+      await import("../src/lib/store/db");
+    const { drainActiveCampaigns } = await import(
+      "../src/lib/sequencer/drain"
+    );
+    const { localClockAt } = await import("../src/lib/timezone/from-phone");
+
+    const drainNow = new Date();
+    const zones = [
+      "Pacific/Honolulu",
+      "America/Anchorage",
+      "America/Los_Angeles",
+      "America/Denver",
+      "America/Chicago",
+      "America/New_York",
+      "America/Sao_Paulo",
+      "UTC",
+      "Europe/London",
+      "Europe/Berlin",
+      "Africa/Cairo",
+      "Asia/Dubai",
+      "Asia/Kolkata",
+      "Asia/Bangkok",
+      "Asia/Shanghai",
+      "Asia/Tokyo",
+      "Australia/Sydney",
+      "Pacific/Auckland",
+    ];
+    const inWindowTz =
+      zones.find((tz) => {
+        const hour = localClockAt("+14155550123", drainNow, tz).localHour;
+        return hour >= 9 && hour < 17;
+      }) ?? "UTC";
+
+    const campaign = await createCampaign({ name: "jitter-defer-drain" });
+    await updateCampaign(campaign.id, {
+      status: "ACTIVE",
+      audioUrl: "https://example.com/a.mp3",
+      lineIds: ["ln_1"],
+      schedule: {
+        sendWindowStart: 8,
+        sendWindowEnd: 21,
+        sendDays: [0, 1, 2, 3, 4, 5, 6],
+        timezoneMode: "FIXED",
+        fixedTimezone: inWindowTz,
+        newLeadsPerDay: 200,
+        requireConsent: false,
+        stopOnCallback: true,
+        stopOnOptOut: true,
+      },
+      steps: [
+        {
+          id: "s1",
+          position: 1,
+          delayDays: 0,
+          scriptTemplate: "Hey {{first_name}}",
+          audioUrl: "https://example.com/a.mp3",
+        },
+      ],
+    });
+    await importLeads(campaign.id, [
+      {
+        phoneE164: "+14155550123",
+        firstName: "Alex",
+        custom: {},
+        dnc: false,
+        consentStatus: "UNKNOWN",
+      },
+    ]);
+    const leads = await listLeads(campaign.id);
+    const refreshed = (await import("../src/lib/store/db")).getCampaign;
+    const live = await refreshed(campaign.id);
+    assert.ok(live);
+    const scheduled = await eagerScheduleCampaign({
+      campaign: live!,
+      leads,
+      now: drainNow,
+      dailyCap: 80,
+    });
+    assert.ok(scheduled.created >= 1);
+
+    const dueRows = await listScheduledForCampaign(campaign.id);
+    assert.ok(dueRows[0]);
+    // Simulate a subsequent cron tick: row is already due (runAt in the past).
+    await updateScheduledSend(dueRows[0]!.id, {
+      status: "PENDING",
+      runAt: new Date(drainNow.getTime() - 60_000).toISOString(),
+      lastError: undefined,
+      claimOwner: undefined,
+      claimedAt: undefined,
+    });
+
+    const firstTick = await drainActiveCampaigns(10);
+    const afterFirst = await listScheduledForCampaign(campaign.id);
+    assert.ok(
+      afterFirst.every((s) => s.lastError !== "JITTER_DEFER"),
+      "due PENDING must not be deferred solely for JITTER_DEFER",
+    );
+
+    const secondTick = await drainActiveCampaigns(10);
+    const afterSecond = await listScheduledForCampaign(campaign.id);
+    assert.ok(
+      afterSecond.every((s) => s.lastError !== "JITTER_DEFER"),
+      "subsequent drain tick must not JITTER_DEFER an already-due row",
+    );
+    assert.equal(
+      afterSecond.filter((s) => s.lastError === "JITTER_DEFER").length,
+      0,
+    );
+    void firstTick;
+    void secondTick;
+  }
 
   console.log("verify-core: all assertions passed");
 }

@@ -831,6 +831,10 @@ async function main() {
       afterFirst.every((s) => s.lastError !== "JITTER_DEFER"),
       "due PENDING must not be deferred solely for JITTER_DEFER",
     );
+    assert.ok(
+      firstTick.details.every((d) => d.reason !== "JITTER_DEFER"),
+      "drain details must not report JITTER_DEFER for a due row",
+    );
 
     const secondTick = await drainActiveCampaigns(10);
     const afterSecond = await listScheduledForCampaign(campaign.id);
@@ -838,12 +842,12 @@ async function main() {
       afterSecond.every((s) => s.lastError !== "JITTER_DEFER"),
       "subsequent drain tick must not JITTER_DEFER an already-due row",
     );
-    assert.equal(
-      afterSecond.filter((s) => s.lastError === "JITTER_DEFER").length,
-      0,
+    assert.ok(
+      afterFirst.some((s) => s.status === "SENT") ||
+        afterSecond.some((s) => s.status === "SENT") ||
+        firstTick.sent + secondTick.sent > 0,
+      "due row should progress to SENT under cron without salt luck",
     );
-    void firstTick;
-    void secondTick;
   }
 
   console.log("verify-core: all assertions passed");

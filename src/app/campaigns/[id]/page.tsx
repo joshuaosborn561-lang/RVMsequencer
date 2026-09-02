@@ -709,10 +709,35 @@ function LinesTab({
   onNext: () => void;
 }) {
   const [pool, setPool] = useState(campaign.lineIds.join(", "));
+  const [poolLines, setPoolLines] = useState<
+    Array<{
+      id: string;
+      e164: string;
+      reputationLabel: string;
+      score?: number | null;
+      source?: string | null;
+      reportCount?: number | null;
+      riskHint?: string;
+      lastReputationCheckAt?: string | null;
+    }>
+  >([]);
 
   useEffect(() => {
     setPool(campaign.lineIds.join(", "));
   }, [campaign.lineIds]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/lines");
+        if (!res.ok) return;
+        const data = (await res.json()) as { lines?: typeof poolLines };
+        setPoolLines(Array.isArray(data.lines) ? data.lines : []);
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, []);
 
   return (
     <section className="rounded-xl border border-[var(--line)] bg-white p-5">
@@ -754,6 +779,24 @@ function LinesTab({
         >
           Save phone lines
         </button>
+        {poolLines.length > 0 ? (
+          <ul className="text-sm text-[var(--muted)]">
+            {poolLines
+              .filter(
+                (l) =>
+                  campaign.lineIds.includes(l.id) ||
+                  campaign.lineIds.includes(l.e164),
+              )
+              .map((l) => (
+                <li key={l.id} className="font-[family-name:var(--font-mono)]">
+                  {l.e164} — {l.riskHint ?? l.reputationLabel}
+                  {l.score != null ? ` · score ${l.score}` : ""}
+                  {l.source ? ` · ${l.source}` : ""}
+                  {l.reportCount != null ? ` · ${l.reportCount} reports` : ""}
+                </li>
+              ))}
+          </ul>
+        ) : null}
       </div>
     </section>
   );

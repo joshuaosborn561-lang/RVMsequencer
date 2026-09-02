@@ -13,21 +13,28 @@ export type ReputationAction =
 
 /**
  * Burned-line heuristics for the deliverability monitor.
- * Thresholds are starting defaults — tune from live webhook data.
+ *
+ * MIXED_HIGH / FLAGGED must come from external carrier/crowd signals
+ * (CallTracer / optional Hiya), never from internal callback-vs-pool.
+ * Callback rates are display-only and do not drive degrade/quarantine.
+ * Never-sent DIDs (attempts7d === 0) are not auto-degraded.
  */
 export function evaluateLineHealth(signals: ReputationSignals): ReputationAction {
+  if (signals.attempts7d === 0 && signals.spamLabel !== "FLAGGED" && signals.spamLabel !== "MIXED_HIGH") {
+    return { action: "keep", statusHint: "HEALTHY" };
+  }
   if (signals.spamLabel === "FLAGGED") {
     return {
       action: "quarantine",
       statusHint: "QUARANTINED",
-      reason: "Carrier analytics spam label (FLAGGED)",
+      reason: "External spam label (FLAGGED)",
     };
   }
   if (signals.spamLabel === "MIXED_HIGH") {
     return {
       action: "degrade",
       statusHint: "DEGRADED",
-      reason: "Elevated spam labeling (MIXED_HIGH)",
+      reason: "Elevated external spam labeling (MIXED_HIGH)",
     };
   }
   if (
@@ -57,17 +64,6 @@ export function evaluateLineHealth(signals: ReputationSignals): ReputationAction
       action: "degrade",
       statusHint: "DEGRADED",
       reason: "Opt-out rate > 3%",
-    };
-  }
-  if (
-    signals.attempts7d >= 50 &&
-    signals.callbackRate7d != null &&
-    signals.callbackRate7d < 0.005
-  ) {
-    return {
-      action: "degrade",
-      statusHint: "DEGRADED",
-      reason: "Callback rate collapsed vs healthy baseline",
     };
   }
   return { action: "keep", statusHint: "HEALTHY" };

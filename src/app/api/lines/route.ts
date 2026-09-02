@@ -1,12 +1,18 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { toE164 } from "@/lib/phone";
+import { lineReputationView } from "@/lib/reputation/check";
 import { ensureLine, listLines, updateLine } from "@/lib/store/db";
 import { configureTwilioNumberWebhooks } from "@/lib/twilio/configure-number";
 
 export async function GET() {
   const lines = await listLines();
-  return NextResponse.json({ lines });
+  return NextResponse.json({
+    lines: lines.map((line) => ({
+      ...line,
+      ...lineReputationView(line),
+    })),
+  });
 }
 
 const PostBody = z.object({
@@ -32,7 +38,10 @@ export async function POST(req: Request) {
   if (parsed.data.configureVoice !== false) {
     twilio = await configureTwilioNumberWebhooks({ e164 });
   }
-  return NextResponse.json({ line, twilio }, { status: 201 });
+  return NextResponse.json(
+    { line: { ...line, ...lineReputationView(line) }, twilio },
+    { status: 201 },
+  );
 }
 
 const PatchBody = z.object({
@@ -47,6 +56,7 @@ const PatchBody = z.object({
   reputationLabel: z
     .enum(["UNFLAGGED", "MIXED_LOW", "MIXED_HIGH", "FLAGGED", "UNKNOWN"])
     .optional(),
+  reputationSource: z.enum(["calltracer", "hiya", "manual"]).optional(),
   registeredFcr: z.boolean().optional(),
   /** Re-point Twilio VoiceUrl to this app */
   configureVoice: z.boolean().optional(),
@@ -71,6 +81,10 @@ export async function PATCH(req: Request) {
     warmupDay: parsed.data.warmupDay,
     minGapSec: parsed.data.minGapSec,
     reputationLabel: parsed.data.reputationLabel,
+    reputationSource:
+      parsed.data.reputationLabel != null
+        ? (parsed.data.reputationSource ?? "manual")
+        : parsed.data.reputationSource,
     registeredFcr: parsed.data.registeredFcr,
   });
   if (!line) {
@@ -90,5 +104,5 @@ export async function PATCH(req: Request) {
   if (parsed.data.configureVoice) {
     twilio = await configureTwilioNumberWebhooks({ e164: line.e164 });
   }
-  return NextResponse.json({ line, twilio });
+  return NextResponse.json({ line: { ...line, ...lineReputationView(line) }, twilio });
 }

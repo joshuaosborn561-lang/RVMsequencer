@@ -1,14 +1,18 @@
 /**
  * Daily spam / blacklist / health pass over Twilio "from" DIDs.
  * Updates in-app line pool + mirrors results to Supabase.
+ *
+ * Labels come from CallTracer (free) and optional Hiya only.
+ * Callback rates are recorded for ops insight and never merge into spamLabel.
  */
 
 import {
   checkCallTracerReputation,
   checkHiyaReputation,
-  internalCallbackHealth,
+  lineReputationView,
   mergeReputationResults,
   type ReputationResult,
+  type ReputationSource,
 } from "@/lib/reputation/check";
 import { evaluateLineHealth } from "@/lib/reputation/evaluate";
 import {
@@ -19,6 +23,7 @@ import {
   updateLine,
   updateSettings,
 } from "@/lib/store/db";
+import type { LineRecord } from "@/lib/store/types";
 import {
   insertReputationCheck,
   upsertCallerIdNumber,
@@ -26,6 +31,12 @@ import {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const RECHECK_AFTER_MS = 20 * 60 * 60 * 1000; // ~once per day with cron slack
+
+export type LineReputationStatus = ReturnType<typeof lineReputationView> & {
+  e164: string;
+  status: LineRecord["status"];
+  callbackRate7d: number | null;
+};
 
 export type DailyReputationSummary = {
   ran: boolean;
@@ -36,11 +47,14 @@ export type DailyReputationSummary = {
   lines: Array<{
     e164: string;
     label: string;
+    score: number | null;
+    reportCount: number | null;
     flagged: boolean;
     status: string;
     action: string;
     reason?: string;
     source?: string;
+    riskHint: string;
   }>;
   supabaseSynced: number;
 };
@@ -49,7 +63,7 @@ function daysAgoIso(days: number): string {
   return new Date(Date.now() - days * DAY_MS).toISOString();
 }
 
-/** Callback rate per DID from inbox (toE164) vs attempts (lineId) over 7d. */
+/** Callback rate per DID from inbox (toE164) vs attempts (lineId) over 7d. Display-only. */
 async function callbackRates7d(
   lines: Awaited<ReturnType<typeof listLines>>,
 ): Promise<Map<string, { rate: number; attempts: number; callbacks: number }>> {
@@ -106,11 +120,153 @@ export async function shouldRunDailyReputation(
   };
 }
 
+/** Persisted last-check snapshot for ops UI / GET status — no paid API. */
+export async function listPersistedReputation(
+  e164?: string,
+): Promise<{
+  lastReputationCheckAt: string | null;
+  lines: LineReputationStatus[];
+}> {
+  const settings = await getSettings();
+  const lines = (await listLines()).filter((l) =>
+    e164 ? l.e164 === e164 : true,
+  );
+  return {
+    lastReputationCheckAt: settings.lastReputationCheckAt ?? null,
+    lines: lines.map((line) => ({
+      e164: line.e164,
+      status: line.status,
+      callbackRate7d: line.callbackRate7d ?? null,
+      ...lineReputationView(line),
+    })),
+  };
+}
+
+async function persistLineReputation(input: {
+  line: LineRecord;
+  merged: ReputationResult;
+  rateRow: { rate: number; attempts: number; callbacks: number };
+  poolAvg: number;
+  checkedAt: string;
+}): Promise<{
+  nextStatus: LineRecord["status"];
+  action: string;
+  reason?: string;
+  supabaseOk: boolean;
+}> {
+  const { line, merged, rateRow, poolAvg, checkedAt } = input;
+  const verdict = evaluateLineHealth({
+    spamLabel: merged.label,
+    attempts7d: rateRow.attempts,
+    callbackRate7d: rateRow.rate,
+    deliveryRate7d: null,
+    optOutRate7d: null,
+  });
+
+  let nextStatus = line.status;
+  if (verdict.action === "quarantine" && line.status !== "QUARANTINED") {
+    nextStatus = "QUARANTINED";
+  } else if (
+    verdict.action === "degrade" &&
+    (line.status === "HEALTHY" || line.status === "WARMING")
+  ) {
+    nextStatus = "DEGRADED";
+  } else if (
+    verdict.action === "keep" &&
+    (line.status === "DEGRADED" || line.status === "QUARANTINED") &&
+    merged.label === "UNFLAGGED"
+  ) {
+    // Lift only when the external check is clean
+    nextStatus = line.warmupDay < 14 ? "WARMING" : "HEALTHY";
+  }
+
+  const source: ReputationSource =
+    merged.source === "hiya" || merged.source === "calltracer" || merged.source === "manual"
+      ? merged.source
+      : "calltracer";
+
+  await updateLine(line.id, {
+    reputationLabel: merged.label,
+    reputationScore: merged.score ?? null,
+    reputationSource: source,
+    reputationReportCount: merged.reportCount ?? null,
+    lastReputationCheckAt: checkedAt,
+    callbackRate7d: rateRow.rate,
+    status: nextStatus,
+  });
+
+  const sbCaller = await upsertCallerIdNumber({
+    e164: line.e164,
+    provider: "twilio",
+    purpose: "rvm",
+    status: nextStatus.toLowerCase(),
+    warmup_day: line.warmupDay,
+    daily_cap_current: line.dailyCap,
+    fcr_registered: false,
+    reputation_label: merged.label,
+    reputation_score: merged.score ?? null,
+    reputation_source: source,
+    last_reputation_check_at: checkedAt,
+    callback_rate_7d: rateRow.rate,
+    pool_avg_callback_rate_7d: poolAvg,
+    retired_reason:
+      verdict.action === "quarantine" ? verdict.reason : undefined,
+    raw: {
+      lineId: line.id,
+      action: verdict.action,
+      details: merged.details,
+      attempts7d: rateRow.attempts,
+      callbacks7d: rateRow.callbacks,
+      reportCount: merged.reportCount ?? null,
+    },
+  });
+
+  const callerId =
+    sbCaller.ok &&
+    Array.isArray(sbCaller.body) &&
+    sbCaller.body[0] &&
+    typeof sbCaller.body[0] === "object"
+      ? String((sbCaller.body[0] as { id?: string }).id ?? "")
+      : undefined;
+
+  await insertReputationCheck({
+    caller_id_number_id: callerId || undefined,
+    e164: line.e164,
+    checked_at: checkedAt,
+    source,
+    label: merged.label,
+    score: merged.score ?? null,
+    flagged: merged.flagged,
+    details: {
+      ...(merged.details ?? {}),
+      action: verdict.action,
+      statusHint: verdict.statusHint,
+      reason: "reason" in verdict ? verdict.reason : undefined,
+      callbackRate7d: rateRow.rate,
+      poolAvgCallbackRate7d: poolAvg,
+      attempts7d: rateRow.attempts,
+      reportCount: merged.reportCount ?? null,
+    },
+  });
+
+  return {
+    nextStatus,
+    action: verdict.action,
+    reason: "reason" in verdict ? verdict.reason : undefined,
+    supabaseOk: Boolean(sbCaller.ok),
+  };
+}
+
 export async function runDailyReputationChecks(opts?: {
   force?: boolean;
+  /** When set, check only this DID and skip the once-per-day gate. */
+  e164?: string;
 }): Promise<DailyReputationSummary> {
   const checkedAt = new Date().toISOString();
-  const gate = await shouldRunDailyReputation(opts?.force === true);
+  const single = Boolean(opts?.e164);
+  const gate = single
+    ? { run: true as const }
+    : await shouldRunDailyReputation(opts?.force === true);
   if (!gate.run) {
     return {
       ran: false,
@@ -123,15 +279,31 @@ export async function runDailyReputationChecks(opts?: {
     };
   }
 
-  const lines = (await listLines()).filter(
+  const allLines = (await listLines()).filter(
     (l) => l.status !== "RETIRED" && !l.e164.includes("555"),
   );
-  const rates = await callbackRates7d(lines);
+  const lines = opts?.e164
+    ? allLines.filter((l) => l.e164 === opts.e164)
+    : allLines;
+
+  if (opts?.e164 && lines.length === 0) {
+    return {
+      ran: true,
+      skippedReason: "line_not_found",
+      checkedAt,
+      calltracerEnabled: true,
+      hiyaEnabled: Boolean(process.env.HIYA_API_KEY?.trim()),
+      lines: [],
+      supabaseSynced: 0,
+    };
+  }
+
+  const rates = await callbackRates7d(allLines);
   const poolAvg =
-    lines.length === 0
+    allLines.length === 0
       ? 0
-      : lines.reduce((s, l) => s + (rates.get(l.e164)?.rate ?? 0), 0) /
-        lines.length;
+      : allLines.reduce((s, l) => s + (rates.get(l.e164)?.rate ?? 0), 0) /
+        allLines.length;
 
   const phones = lines.map((l) => l.e164);
   const hiyaEnabled = Boolean(process.env.HIYA_API_KEY?.trim());
@@ -151,109 +323,47 @@ export async function runDailyReputationChecks(opts?: {
       attempts: 0,
       callbacks: 0,
     };
-    const internal = internalCallbackHealth({
-      e164: line.e164,
-      callbackRate7d: rateRow.rate,
-      poolAvgCallbackRate7d: poolAvg,
-    });
+    // External signals only — callback metrics stay out of the merge.
     const merged: ReputationResult = mergeReputationResults(
       calltracerByPhone.get(line.e164),
       hiyaByPhone.get(line.e164),
-      internal,
     );
+    if (!merged.e164) merged.e164 = line.e164;
 
-    const verdict = evaluateLineHealth({
-      spamLabel: merged.label,
-      attempts7d: rateRow.attempts,
-      callbackRate7d: rateRow.rate,
-      deliveryRate7d: null,
-      optOutRate7d: null,
+    const persisted = await persistLineReputation({
+      line,
+      merged,
+      rateRow,
+      poolAvg,
+      checkedAt,
     });
+    if (persisted.supabaseOk) supabaseSynced += 1;
 
-    let nextStatus = line.status;
-    if (verdict.action === "quarantine" && line.status !== "QUARANTINED") {
-      nextStatus = "QUARANTINED";
-    } else if (
-      verdict.action === "degrade" &&
-      (line.status === "HEALTHY" || line.status === "WARMING")
-    ) {
-      nextStatus = "DEGRADED";
-    } else if (
-      verdict.action === "keep" &&
-      (line.status === "DEGRADED" || line.status === "QUARANTINED") &&
-      merged.label === "UNFLAGGED"
-    ) {
-      // Only lift quarantine when external/internal both clean
-      nextStatus = line.warmupDay < 14 ? "WARMING" : "HEALTHY";
-    }
-
-    await updateLine(line.id, {
+    const view = lineReputationView({
       reputationLabel: merged.label,
-      status: nextStatus,
-    });
-
-    const sbCaller = await upsertCallerIdNumber({
-      e164: line.e164,
-      provider: "twilio",
-      purpose: "rvm",
-      status: nextStatus.toLowerCase(),
-      warmup_day: line.warmupDay,
-      daily_cap_current: line.dailyCap,
-      fcr_registered: false,
-      reputation_label: merged.label,
-      reputation_score: merged.score ?? null,
-      reputation_source: merged.source,
-      last_reputation_check_at: checkedAt,
-      callback_rate_7d: rateRow.rate,
-      pool_avg_callback_rate_7d: poolAvg,
-      retired_reason:
-        verdict.action === "quarantine" ? verdict.reason : undefined,
-      raw: {
-        lineId: line.id,
-        action: verdict.action,
-        details: merged.details,
-        attempts7d: rateRow.attempts,
-        callbacks7d: rateRow.callbacks,
-      },
-    });
-    if (sbCaller.ok) supabaseSynced += 1;
-
-    const callerId =
-      sbCaller.ok &&
-      Array.isArray(sbCaller.body) &&
-      sbCaller.body[0] &&
-      typeof sbCaller.body[0] === "object"
-        ? String((sbCaller.body[0] as { id?: string }).id ?? "")
-        : undefined;
-
-    await insertReputationCheck({
-      caller_id_number_id: callerId || undefined,
-      e164: line.e164,
-      checked_at: checkedAt,
-      source: merged.source,
-      label: merged.label,
-      score: merged.score ?? null,
-      flagged: merged.flagged,
-      details: {
-        ...(merged.details ?? {}),
-        action: verdict.action,
-        statusHint: verdict.statusHint,
-        reason: "reason" in verdict ? verdict.reason : undefined,
-      },
+      reputationScore: merged.score,
+      reputationSource: merged.source,
+      reputationReportCount: merged.reportCount,
+      lastReputationCheckAt: checkedAt,
     });
 
     summaryLines.push({
       e164: line.e164,
       label: merged.label,
+      score: view.score,
+      reportCount: view.reportCount,
       flagged: merged.flagged,
-      status: nextStatus,
-      action: verdict.action,
-      reason: "reason" in verdict ? verdict.reason : undefined,
+      status: persisted.nextStatus,
+      action: persisted.action,
+      reason: persisted.reason,
       source: merged.source,
+      riskHint: view.riskHint,
     });
   }
 
-  await updateSettings({ lastReputationCheckAt: checkedAt });
+  if (!single) {
+    await updateSettings({ lastReputationCheckAt: checkedAt });
+  }
 
   return {
     ran: true,

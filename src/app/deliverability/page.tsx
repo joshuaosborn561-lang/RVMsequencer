@@ -1,26 +1,30 @@
 import { AppShell } from "@/components/app-shell";
 import { demoLines } from "@/lib/demo/data";
+import { lineReputationView } from "@/lib/reputation/check";
 import { evaluateLineHealth } from "@/lib/reputation/evaluate";
+import { listLines } from "@/lib/store/db";
 
-export default function DeliverabilityPage() {
-  const rows = demoLines.map((line) => {
+export default async function DeliverabilityPage() {
+  const stored = await listLines().catch(() => []);
+  const rows = (stored.length ? stored : demoLines).map((line) => {
+    const view = lineReputationView(line);
     const verdict = evaluateLineHealth({
-      deliveryRate7d: line.deliveryRate7d,
-      callbackRate7d: line.callbackRate7d,
+      deliveryRate7d: "deliveryRate7d" in line ? line.deliveryRate7d : null,
+      callbackRate7d: line.callbackRate7d ?? null,
       spamLabel: line.reputationLabel,
-      attempts7d: 80,
+      attempts7d: line.sentToday > 0 ? Math.max(line.sentToday, 1) : 0,
       optOutRate7d: line.status === "QUARANTINED" ? 0.04 : 0.008,
     });
-    return { line, verdict };
+    return { line, view, verdict };
   });
 
   return (
     <AppShell
       title="Deliverability"
-      subtitle="SmartDelivery equivalent — line reputation, quarantine, and burn signals."
+      subtitle="Line reputation from CallTracer / optional Hiya — score, source, last check. Callback rates are monitoring only."
     >
       <div className="grid gap-4">
-        {rows.map(({ line, verdict }) => (
+        {rows.map(({ line, view, verdict }) => (
           <article key={line.id} className="panel rounded-xl p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -28,9 +32,19 @@ export default function DeliverabilityPage() {
                   {line.e164}
                 </p>
                 <p className="text-sm text-[var(--muted)]">
-                  Delivery {(line.deliveryRate7d * 100).toFixed(0)}% · Callbacks{" "}
-                  {(line.callbackRate7d * 100).toFixed(1)}% · Label{" "}
-                  {line.reputationLabel}
+                  {view.riskHint} · {view.reputationLabel}
+                  {view.score != null ? ` · score ${view.score}` : ""}
+                  {view.source ? ` · ${view.source}` : ""}
+                  {view.reportCount != null ? ` · ${view.reportCount} reports` : ""}
+                </p>
+                <p className="text-xs text-[var(--muted)]">
+                  Last check{" "}
+                  {view.lastReputationCheckAt
+                    ? new Date(view.lastReputationCheckAt).toLocaleString()
+                    : "never"}
+                  {line.callbackRate7d != null
+                    ? ` · callbacks ${(line.callbackRate7d * 100).toFixed(1)}% (monitor only)`
+                    : ""}
                 </p>
               </div>
               <span

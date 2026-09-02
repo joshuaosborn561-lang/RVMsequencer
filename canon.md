@@ -270,8 +270,14 @@ TZ order: FIXED → lead TZ → state TZ → phone NPA.
 
 | Reputation signal | Action |
 |---|---|
-| FLAGGED | Quarantine |
-| MIXED_HIGH | Degrade |
+| FLAGGED (external) | Quarantine |
+| MIXED_HIGH (external) | Degrade |
+
+**Where labels come from:** CallTracer crowd spam score (free default) and optional Hiya when `HIYA_API_KEY` is set. Worst external label wins. Operators see **label, score, source, report count, last check**, plus a plain-English hint (`Likely spam` / `Elevated` / `Clean` / `Unknown`).
+
+**Not a spam label:** 7-day callback rate vs pool average is a **monitoring metric only**. It must not become `MIXED_HIGH` / `FLAGGED` and must not degrade or quarantine a line. Never-sent DIDs (`attempts7d === 0`, no `lastSentAt`) stay `UNKNOWN` / `UNFLAGGED` until an external check says otherwise — they are never auto-degraded for sitting idle.
+
+Manual label edits are source `manual`. Nomorobo / other paid lookup APIs are not required.
 
 ---
 
@@ -352,7 +358,7 @@ Ops: create Allo tag **`do_not_call`**.
 - [ ] Tick every 5m; `lastDrainAt` moving
 - [ ] Webhooks unlocking multi-step
 - [ ] `suppression_sync_status` OK if Allo on
-- [ ] No surprise FLAGGED / quarantined pool
+- [ ] No surprise FLAGGED / quarantined pool (external CallTracer/Hiya only; unused DIDs not MIXED_HIGH)
 - [ ] Callbacks → Allo/Inbox; STOP suppresses
 - [ ] Seeds first when configured
 - [ ] Volume = line caps only

@@ -12,6 +12,10 @@ export type DemoLine = {
   deliveryRate7d: number;
   callbackRate7d: number;
   reputationLabel: "UNFLAGGED" | "MIXED_LOW" | "MIXED_HIGH" | "FLAGGED" | "UNKNOWN";
+  reputationScore?: number | null;
+  reputationSource?: "calltracer" | "hiya" | "manual";
+  reputationReportCount?: number | null;
+  lastReputationCheckAt?: string;
   registeredFcr: boolean;
   voiceIntegrity: boolean;
 };
@@ -28,6 +32,10 @@ export const demoLines: DemoLine[] = [
     deliveryRate7d: 0.78,
     callbackRate7d: 0.041,
     reputationLabel: "UNFLAGGED",
+    reputationScore: 4,
+    reputationSource: "calltracer",
+    reputationReportCount: 0,
+    lastReputationCheckAt: "2026-09-01T12:00:00.000Z",
     registeredFcr: true,
     voiceIntegrity: true,
   },
@@ -42,6 +50,9 @@ export const demoLines: DemoLine[] = [
     deliveryRate7d: 0.81,
     callbackRate7d: 0.03,
     reputationLabel: "UNKNOWN",
+    reputationScore: null,
+    reputationSource: undefined,
+    reputationReportCount: null,
     registeredFcr: true,
     voiceIntegrity: false,
   },
@@ -56,6 +67,10 @@ export const demoLines: DemoLine[] = [
     deliveryRate7d: 0.52,
     callbackRate7d: 0.009,
     reputationLabel: "MIXED_LOW",
+    reputationScore: 22,
+    reputationSource: "calltracer",
+    reputationReportCount: 2,
+    lastReputationCheckAt: "2026-09-01T12:00:00.000Z",
     registeredFcr: true,
     voiceIntegrity: true,
   },
@@ -70,6 +85,10 @@ export const demoLines: DemoLine[] = [
     deliveryRate7d: 0.31,
     callbackRate7d: 0.002,
     reputationLabel: "FLAGGED",
+    reputationScore: 81,
+    reputationSource: "calltracer",
+    reputationReportCount: 12,
+    lastReputationCheckAt: "2026-09-01T12:00:00.000Z",
     registeredFcr: false,
     voiceIntegrity: false,
   },

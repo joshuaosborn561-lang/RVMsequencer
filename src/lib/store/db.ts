@@ -53,6 +53,11 @@ function seedLines(): LineRecord[] {
     sentToday: 0,
     sentTodayDate: utcDateKey(),
     reputationLabel: l.reputationLabel,
+    reputationScore: l.reputationScore ?? null,
+    reputationSource: l.reputationSource,
+    reputationReportCount: l.reputationReportCount ?? null,
+    lastReputationCheckAt: l.lastReputationCheckAt,
+    callbackRate7d: l.callbackRate7d ?? null,
     minGapSec: DEFAULT_LINE_MIN_GAP_SEC,
     registeredFcr: l.registeredFcr ?? false,
   }));
@@ -685,6 +690,11 @@ export async function ensureLine(e164: string): Promise<LineRecord> {
       sentToday: 0,
       sentTodayDate: utcDateKey(),
       reputationLabel: "UNKNOWN",
+      reputationScore: null,
+      reputationSource: undefined,
+      reputationReportCount: null,
+      lastReputationCheckAt: undefined,
+      callbackRate7d: null,
       minGapSec: DEFAULT_LINE_MIN_GAP_SEC,
       registeredFcr: false,
     };
@@ -703,6 +713,11 @@ export async function updateLine(
       | "warmupDay"
       | "minGapSec"
       | "reputationLabel"
+      | "reputationScore"
+      | "reputationSource"
+      | "reputationReportCount"
+      | "lastReputationCheckAt"
+      | "callbackRate7d"
       | "registeredFcr"
     >
   >,
@@ -715,6 +730,15 @@ export async function updateLine(
     if (patch.warmupDay != null) line.warmupDay = patch.warmupDay;
     if (patch.minGapSec != null) line.minGapSec = patch.minGapSec;
     if (patch.reputationLabel != null) line.reputationLabel = patch.reputationLabel;
+    if (patch.reputationScore !== undefined) line.reputationScore = patch.reputationScore;
+    if (patch.reputationSource !== undefined) line.reputationSource = patch.reputationSource;
+    if (patch.reputationReportCount !== undefined) {
+      line.reputationReportCount = patch.reputationReportCount;
+    }
+    if (patch.lastReputationCheckAt !== undefined) {
+      line.lastReputationCheckAt = patch.lastReputationCheckAt;
+    }
+    if (patch.callbackRate7d !== undefined) line.callbackRate7d = patch.callbackRate7d;
     if (patch.registeredFcr != null) line.registeredFcr = patch.registeredFcr;
     return { ...line };
   });

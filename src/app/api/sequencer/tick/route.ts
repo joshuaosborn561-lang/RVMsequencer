@@ -12,6 +12,8 @@ import {
 } from "@/lib/sequencer/drain";
 import { runAttempt } from "@/lib/sequencer/run-attempt";
 import { isSuppressed } from "@/lib/store/db";
+import { runAlloSuppressionSync } from "@/lib/allo/sync";
+import { isAlloSyncEnabled } from "@/lib/allo/client";
 
 function authorizeCron(req: Request): boolean {
   const secret = process.env.CRON_SECRET;
@@ -138,11 +140,26 @@ export async function POST(req: Request) {
     const reputation = await runDailyReputationChecks({
       force: forceReputation,
     });
+    // Hourly Allo → suppression sync (gated inside; never blocks drain on failure)
+    let alloSync: unknown = { ran: false, skippedReason: "disabled" };
+    if (isAlloSyncEnabled()) {
+      try {
+        alloSync = await runAlloSuppressionSync();
+      } catch (err) {
+        console.error("[tick] allo suppression sync failed", err);
+        alloSync = {
+          ran: false,
+          skippedReason: "error",
+          error: err instanceof Error ? err.message : "unknown",
+        };
+      }
+    }
     const reconcile = await reconcileCampaigns();
     const result = await drainActiveCampaigns(limit);
     return NextResponse.json({
       mode: "drain",
       reputation,
+      alloSync,
       reconcile,
       ...result,
     });

@@ -145,12 +145,35 @@ export type AttemptRecord = {
   completedAt?: string;
 };
 
+export type AlloSuppressionMeta = {
+  alloCallId: string;
+  alloLine?: string;
+  alloRep?: string | null;
+  durationSec?: number | null;
+  direction?: string | null;
+  tags?: string[];
+  callDate?: string | null;
+  rule: string;
+  tagKey?: string;
+  updatedAt?: string;
+};
+
 export type SuppressionRecord = {
   id: string;
   phoneE164: string;
   reason: string;
-  source: "IMPORT" | "SCRUB" | "SMS_STOP" | "INBOX" | "CALLBACK" | "MANUAL" | "BOUNCE";
+  source:
+    | "IMPORT"
+    | "SCRUB"
+    | "SMS_STOP"
+    | "INBOX"
+    | "CALLBACK"
+    | "MANUAL"
+    | "BOUNCE"
+    | "ALLO";
   createdAt: string;
+  /** Audit fields when source is ALLO (call id, line, tags, rule). */
+  alloMeta?: AlloSuppressionMeta;
 };
 
 export type LineRecord = {

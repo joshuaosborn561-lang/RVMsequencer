@@ -214,8 +214,60 @@ export async function upsertSeedNumberRow(row: {
   });
 }
 
+export type PendingRvmDrop = {
+  provider_session_id: string;
+  dial_status?: string;
+  queued_at?: string;
+  updated_at?: string;
+};
+
+/** Recent rvm_drops still Pending / empty — used to supplement local queue polling. */
+export async function listPendingRvmDrops(opts: {
+  olderThanIso: string;
+  newerThanIso: string;
+  limit: number;
+}): Promise<PendingRvmDrop[]> {
+  if (!supabaseConfig()) return [];
+  const take = Math.max(1, Math.min(200, opts.limit));
+  const qs = [
+    "select=provider_session_id,dial_status,queued_at,updated_at",
+    "provider_session_id=not.is.null",
+    "or=(dial_status.eq.Pending,dial_status.eq.pending,dial_status.is.null,dial_status.eq.)",
+    "order=updated_at.asc",
+    `limit=${Math.max(take, 50)}`,
+  ].join("&");
+  const res = await sbFetch(`rvm_drops?${qs}`, { method: "GET" });
+  if (!res.ok || !Array.isArray(res.body)) return [];
+  const older = Date.parse(opts.olderThanIso);
+  const newer = Date.parse(opts.newerThanIso);
+  const out: PendingRvmDrop[] = [];
+  for (const raw of res.body) {
+    if (!raw || typeof raw !== "object") continue;
+    const r = raw as Record<string, unknown>;
+    const session = String(r.provider_session_id ?? "").trim();
+    if (!session) continue;
+    const stamp = Date.parse(
+      String(r.queued_at ?? r.updated_at ?? ""),
+    );
+    if (Number.isFinite(stamp)) {
+      if (stamp > older || stamp < newer) continue;
+    }
+    out.push({
+      provider_session_id: session,
+      dial_status: r.dial_status != null ? String(r.dial_status) : undefined,
+      queued_at: r.queued_at != null ? String(r.queued_at) : undefined,
+      updated_at: r.updated_at != null ? String(r.updated_at) : undefined,
+    });
+    if (out.length >= take) break;
+  }
+  return out;
+}
+
 /** Pull Slybroadcast campaign_result and patch dial_status / fail_reason / carrier. */
 export async function refreshSlybroadcastOutcome(sessionId: string) {
+  if ((process.env.RVM_PROVIDER ?? "").trim().toLowerCase() === "mock") {
+    return { ok: false, error: "MOCK_PROVIDER" };
+  }
   const uid = process.env.SLYBROADCAST_UID?.trim();
   const password = process.env.SLYBROADCAST_PASSWORD?.trim();
   if (!uid || !password) return { ok: false, error: "SLYBROADCAST_NOT_CONFIGURED" };

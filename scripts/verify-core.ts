@@ -850,6 +850,321 @@ async function main() {
     );
   }
 
+  // Receipt poll: campaign_result → deliveryStatus (no live Slybroadcast)
+  {
+    const {
+      mapDialStatusToDelivery,
+      receiptHealthFlag,
+      refreshPendingReceipts,
+    } = await import("../src/lib/sequencer/refresh-receipts");
+    const { refreshSlybroadcastOutcome } = await import(
+      "../src/lib/supabase/rvm-sync"
+    );
+    const { listPendingReceiptCandidates } = await import(
+      "../src/lib/store/scheduled"
+    );
+    const {
+      createCampaign,
+      updateCampaign,
+      importLeads,
+      listLeads,
+      getCampaign,
+      listAuditEvents,
+    } = await import("../src/lib/store/db");
+
+    assert.equal(mapDialStatusToDelivery("OK"), "delivered");
+    assert.equal(mapDialStatusToDelivery("ok"), "delivered");
+    assert.equal(mapDialStatusToDelivery("Failure"), "failed");
+    assert.equal(mapDialStatusToDelivery("Pending"), "queued");
+    assert.equal(mapDialStatusToDelivery(""), "queued");
+    assert.equal(mapDialStatusToDelivery("sent"), "sent");
+
+    assert.equal(
+      receiptHealthFlag({ ok: 7, failed: 3, stalePending: 0 }).flag,
+      "RECEIPT_HEALTH",
+    );
+    assert.equal(
+      receiptHealthFlag({ ok: 8, failed: 2, stalePending: 0 }).flag,
+      undefined,
+    );
+    assert.equal(
+      receiptHealthFlag({ ok: 0, failed: 3, stalePending: 0 }).flag,
+      undefined,
+    );
+    assert.equal(
+      receiptHealthFlag({ ok: 0, failed: 0, stalePending: 10 }).flag,
+      "RECEIPT_HEALTH",
+    );
+
+    const origFetch = globalThis.fetch;
+    let fetchHits = 0;
+    globalThis.fetch = (async () => {
+      fetchHits += 1;
+      return new Response(JSON.stringify({ ERROR: "live slybroadcast" }));
+    }) as typeof fetch;
+    const guarded = await refreshSlybroadcastOutcome("sess_must_not_hit");
+    assert.equal(guarded.ok, false);
+    assert.equal(fetchHits, 0, "RVM_PROVIDER=mock must not call Slybroadcast");
+    const skipped = await refreshPendingReceipts({ settleMs: 0 });
+    assert.equal(skipped.refreshed, 0);
+    assert.equal(fetchHits, 0);
+    globalThis.fetch = origFetch;
+
+    async function seedQueuedSend(opts: {
+      name: string;
+      phone: string;
+      sessionId: string;
+    }) {
+      const campaign = await createCampaign({ name: opts.name });
+      await updateCampaign(campaign.id, {
+        status: "ACTIVE",
+        audioUrl: "https://example.com/a.mp3",
+        lineIds: ["ln_1"],
+        schedule: {
+          sendWindowStart: 8,
+          sendWindowEnd: 21,
+          sendDays: [0, 1, 2, 3, 4, 5, 6],
+          timezoneMode: "FIXED",
+          fixedTimezone: "UTC",
+          newLeadsPerDay: 200,
+          requireConsent: false,
+          stopOnCallback: true,
+          stopOnOptOut: true,
+        },
+        steps: [
+          {
+            id: "s1",
+            position: 1,
+            delayDays: 0,
+            scriptTemplate: "Hey",
+            audioUrl: "https://example.com/a.mp3",
+          },
+          {
+            id: "s2",
+            position: 2,
+            delayDays: 2,
+            scriptTemplate: "Follow",
+            audioUrl: "https://example.com/a.mp3",
+          },
+        ],
+      });
+      await importLeads(campaign.id, [
+        {
+          phoneE164: opts.phone,
+          firstName: "Pat",
+          custom: {},
+          dnc: false,
+          consentStatus: "UNKNOWN",
+        },
+      ]);
+      const leads = await listLeads(campaign.id);
+      const live = await getCampaign(campaign.id);
+      assert.ok(live);
+      await eagerScheduleCampaign({
+        campaign: live!,
+        leads,
+        now: new Date(),
+      });
+      const rows = await listScheduledForCampaign(campaign.id);
+      const step1 = rows.find((s) => s.stepPosition === 1);
+      assert.ok(step1, "step 1 must be scheduled");
+      await updateScheduledSend(step1!.id, {
+        status: "SENT",
+        providerMsgId: opts.sessionId,
+        deliveryStatus: "queued",
+      });
+      return { campaignId: campaign.id };
+    }
+
+    const okSeed = await seedQueuedSend({
+      name: "receipt-ok",
+      phone: "+14155551101",
+      sessionId: "sess_ok_1",
+    });
+    const failSeed = await seedQueuedSend({
+      name: "receipt-fail",
+      phone: "+14155551102",
+      sessionId: "sess_fail_1",
+    });
+    await seedQueuedSend({
+      name: "receipt-pending",
+      phone: "+14155551103",
+      sessionId: "sess_pend_1",
+    });
+
+    const mapped = await refreshPendingReceipts({
+      settleMs: 0,
+      fetchOutcome: async (sessionId) => {
+        if (sessionId === "sess_ok_1") return { ok: true, dialStatus: "OK" };
+        if (sessionId === "sess_fail_1") {
+          return { ok: true, dialStatus: "Failure", failReason: "NOANSWER" };
+        }
+        return { ok: true, dialStatus: "Pending" };
+      },
+    });
+    assert.ok(mapped.ok >= 1, "OK receipt must count as ok");
+    assert.ok(mapped.failed >= 1, "Failure receipt must count as failed");
+    assert.ok(mapped.stillPending >= 1, "Pending receipt must remain pending");
+    const afterOk = (await listScheduledForCampaign(okSeed.campaignId)).find(
+      (s) => s.stepPosition === 1,
+    );
+    const afterFail = (await listScheduledForCampaign(failSeed.campaignId)).find(
+      (s) => s.stepPosition === 1,
+    );
+    const afterPend = (await listScheduledForCampaign(okSeed.campaignId)).find(
+      (s) => s.providerMsgId === "sess_ok_1",
+    );
+    assert.equal(afterOk?.deliveryStatus, "delivered");
+    assert.equal(afterFail?.deliveryStatus, "failed");
+    assert.equal(afterFail?.status, "FAILED");
+    assert.equal(afterFail?.lastError, "NOANSWER");
+    const failStep2 = (await listScheduledForCampaign(failSeed.campaignId)).find(
+      (s) => s.stepPosition === 2,
+    );
+    assert.equal(failStep2?.status, "CANCELLED");
+    assert.equal(afterPend?.deliveryStatus, "delivered");
+
+    const capCamp = await createCampaign({ name: "receipt-cap" });
+    await updateCampaign(capCamp.id, {
+      status: "ACTIVE",
+      audioUrl: "https://example.com/a.mp3",
+      lineIds: ["ln_1"],
+      schedule: {
+        sendWindowStart: 8,
+        sendWindowEnd: 21,
+        sendDays: [0, 1, 2, 3, 4, 5, 6],
+        timezoneMode: "FIXED",
+        fixedTimezone: "UTC",
+        newLeadsPerDay: 200,
+        requireConsent: false,
+        stopOnCallback: true,
+        stopOnOptOut: true,
+      },
+      steps: [
+        {
+          id: "s1",
+          position: 1,
+          delayDays: 0,
+          scriptTemplate: "Hey",
+          audioUrl: "https://example.com/a.mp3",
+        },
+      ],
+    });
+    await importLeads(
+      capCamp.id,
+      Array.from({ length: 12 }, (_, i) => ({
+        phoneE164: `+14155553${String(i).padStart(3, "0")}`,
+        firstName: "Cap",
+        custom: {},
+        dnc: false,
+        consentStatus: "UNKNOWN" as const,
+      })),
+    );
+    const capLive = await getCampaign(capCamp.id);
+    const capLeads = await listLeads(capCamp.id);
+    await eagerScheduleCampaign({
+      campaign: capLive!,
+      leads: capLeads,
+      now: new Date(),
+    });
+    const capRows = await listScheduledForCampaign(capCamp.id);
+    let n = 0;
+    for (const row of capRows) {
+      await updateScheduledSend(row.id, {
+        status: "SENT",
+        providerMsgId: `sess_cap_${n}`,
+        deliveryStatus: "queued",
+      });
+      n += 1;
+    }
+    const allPending = await listPendingReceiptCandidates({
+      now: new Date(),
+      settleMs: 0,
+      lookbackMs: 48 * 60 * 60 * 1000,
+      limit: 1000,
+    });
+    assert.ok(allPending.length >= 12, "need enough pending receipts for cap");
+    const cappedList = await listPendingReceiptCandidates({
+      now: new Date(),
+      settleMs: 0,
+      lookbackMs: 48 * 60 * 60 * 1000,
+      limit: 5,
+    });
+    assert.equal(cappedList.length, 5, "listPendingReceiptCandidates honors cap");
+
+    let pollCalls = 0;
+    await refreshPendingReceipts({
+      settleMs: 0,
+      batchCap: 5,
+      fetchOutcome: async () => {
+        pollCalls += 1;
+        return { ok: true, dialStatus: "Pending" };
+      },
+    });
+    assert.equal(pollCalls, 5, "refreshPendingReceipts honors batch cap");
+
+    const fresh = await seedQueuedSend({
+      name: "receipt-fresh",
+      phone: "+14155551199",
+      sessionId: "sess_fresh_1",
+    });
+    const tooSoon = await listPendingReceiptCandidates({
+      now: new Date(),
+      settleMs: 5 * 60 * 1000,
+      lookbackMs: 48 * 60 * 60 * 1000,
+      limit: 200,
+    });
+    assert.equal(
+      tooSoon.some((s) => s.providerMsgId === "sess_fresh_1"),
+      false,
+      "rows newer than settle window must not be polled",
+    );
+    const dueNow = await listPendingReceiptCandidates({
+      now: new Date(),
+      settleMs: 0,
+      lookbackMs: 48 * 60 * 60 * 1000,
+      limit: 200,
+    });
+    assert.equal(
+      dueNow.some((s) => s.providerMsgId === "sess_fresh_1"),
+      true,
+    );
+    assert.ok(fresh.campaignId);
+
+    const healthIds = new Set<string>();
+    for (let i = 0; i < 10; i++) {
+      const sessionId = `sess_health_${i}`;
+      healthIds.add(sessionId);
+      await seedQueuedSend({
+        name: `receipt-health-${i}`,
+        phone: `+14155554${String(i).padStart(3, "0")}`,
+        sessionId,
+      });
+    }
+    const healthResult = await refreshPendingReceipts({
+      settleMs: 0,
+      batchCap: 100,
+      fetchOutcome: async (sessionId) => {
+        if (healthIds.has(sessionId)) {
+          return sessionId.endsWith("0") ||
+            sessionId.endsWith("1") ||
+            sessionId.endsWith("2")
+            ? { ok: true, dialStatus: "Failure", failReason: "BUSY" }
+            : { ok: true, dialStatus: "OK" };
+        }
+        return { ok: true, dialStatus: "Pending" };
+      },
+    });
+    assert.equal(healthResult.flag, "RECEIPT_HEALTH");
+    assert.ok(healthResult.failed >= 3);
+    assert.ok(healthResult.ok >= 7);
+    const audits = await listAuditEvents({ limit: 30 });
+    assert.ok(
+      audits.some((a) => a.action === "RECEIPT_HEALTH"),
+      "RECEIPT_HEALTH must be audited (no auto-pause)",
+    );
+  }
+
   console.log("verify-core: all assertions passed");
 }
 

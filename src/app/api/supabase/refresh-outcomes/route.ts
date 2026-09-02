@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { refreshSlybroadcastOutcome } from "@/lib/supabase/rvm-sync";
-import { listCampaigns, listLeads } from "@/lib/store/db";
+import { refreshPendingReceipts } from "@/lib/sequencer/refresh-receipts";
 
 /**
- * Refresh Slybroadcast dial_status into Supabase for recent SENT leads.
- * Call from cron or after drops. Auth: same CRON_SECRET.
+ * Refresh Slybroadcast dial_status into Supabase + scheduled-send deliveryStatus.
+ * Same campaign_result path as the sequencer tick, without the settle delay.
+ * Auth: same CRON_SECRET.
  */
 function authorize(req: Request): boolean {
   const secret = process.env.CRON_SECRET;
@@ -19,22 +19,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const campaigns = await listCampaigns();
-  const results: unknown[] = [];
-  for (const c of campaigns) {
-    const leads = await listLeads(c.id);
-    for (const lead of leads) {
-      if (!lead.providerMessageId) continue;
-      if (lead.status !== "SENT" && lead.status !== "FAILED") continue;
-      const r = await refreshSlybroadcastOutcome(lead.providerMessageId);
-      results.push({
-        campaignId: c.id,
-        leadId: lead.id,
-        phone: lead.phoneE164,
-        session: lead.providerMessageId,
-        ...r,
-      });
-    }
-  }
-  return NextResponse.json({ ok: true, refreshed: results.length, results });
+  const receipts = await refreshPendingReceipts({
+    settleMs: 0,
+    batchCap: 200,
+  });
+  return NextResponse.json({
+    ok: true,
+    refreshed: receipts.refreshed,
+    okCount: receipts.ok,
+    failed: receipts.failed,
+    stillPending: receipts.stillPending,
+    flag: receipts.flag,
+    health: receipts.health,
+    receipts,
+  });
 }

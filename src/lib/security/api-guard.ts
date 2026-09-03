@@ -18,3 +18,18 @@ export async function guardApiRateLimit(
   }
   return null;
 }
+
+/** CRON_SECRET via `x-cron-secret` or `Authorization: Bearer`. */
+export function authorizeCronSecret(req: Request): boolean {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return process.env.NODE_ENV !== "production";
+  const header = req.headers.get("x-cron-secret") ?? "";
+  const auth = req.headers.get("authorization") ?? "";
+  return header === secret || auth === `Bearer ${secret}`;
+}
+
+/** 401 unless cron/operator secret matches (same contract as tick / Allo sync). */
+export function guardCronAuth(req: Request): NextResponse | null {
+  if (authorizeCronSecret(req)) return null;
+  return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+}

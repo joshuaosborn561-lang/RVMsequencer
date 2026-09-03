@@ -358,6 +358,15 @@ export type SuppressCampaignLeadResult =
     }
   | { ok: false; error: "campaign_not_found" | "lead_not_found" };
 
+type SuppressLeadMutation =
+  | { error: "lead_not_found" }
+  | {
+      lead: LeadRecord;
+      changed: boolean;
+      idempotent: boolean;
+      historyPreserved: boolean;
+    };
+
 /**
  * Narrow per-lead suppress for one campaign row.
  * Does not write a global suppression (unlike suppressLeadByPhone).
@@ -372,10 +381,10 @@ export async function suppressCampaignLead(
   const campaign = await getCampaign(campaignId);
   if (!campaign) return { ok: false, error: "campaign_not_found" };
 
-  const mutated = await mutateStore((store) => {
+  const mutated = await mutateStore((store): SuppressLeadMutation => {
     const lead = store.leads.find((l) => l.id === leadId);
     if (!lead || lead.campaignId !== campaignId) {
-      return { error: "lead_not_found" as const };
+      return { error: "lead_not_found" };
     }
     const status = lead.status ?? "PENDING";
     if (status === "SENT") {

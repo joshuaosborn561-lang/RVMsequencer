@@ -36,7 +36,8 @@ Ask: **“Reuse a saved recording, open a phone recorder link, give me a public 
 ### 4) Volume & schedule walkthrough
 Ask one by one (offer defaults from preferences):
 - New leads / day → removed (volume = sum of line dailyCaps / warmup only)
-- Send window hours → `sendWindowStart` / `sendWindowEnd` (default 9–20)
+- Send window hours → `sendWindowStart` / `sendWindowEnd` (default Mon–Thu 9–17, exclusive end)
+- Friday window → optional `fridaySendWindowStart` / `fridaySendWindowEnd` (default 9–13). Omit to keep one window all send days.
 - Days → `sendDays` (default Mon–Fri `[1,2,3,4,5]`)
 - Timezone → `RECIPIENT_LOCAL` unless they want FIXED
 - Org hard cap → not used (per-line dailyCap only)

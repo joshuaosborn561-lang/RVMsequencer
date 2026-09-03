@@ -7,17 +7,53 @@ import {
 import { evaluateCompliance, type ConsentStatus } from "@/lib/compliance/gates";
 import { localClockAt } from "@/lib/timezone/from-phone";
 
+/** JS Date.getDay() for Friday. */
+export const JS_FRIDAY = 5;
+
 export type SendSchedule = {
   /** Local hour inclusive start (e.g. 9) */
   sendWindowStart: number;
-  /** Local hour exclusive end (e.g. 20 → until 7:59pm) */
+  /** Local hour exclusive end (e.g. 17 → until 16:59) */
   sendWindowEnd: number;
+  /** Optional Friday-only inclusive start. Absent → sendWindowStart. */
+  fridaySendWindowStart?: number | null;
+  /** Optional Friday-only exclusive end. Absent → sendWindowEnd. */
+  fridaySendWindowEnd?: number | null;
   /** JS getDay() values allowed */
   sendDays: number[];
   requireConsent?: boolean;
   timezoneMode?: "RECIPIENT_LOCAL" | "FIXED";
   fixedTimezone?: string;
 };
+
+export type DaySendWindow = {
+  sendWindowStart: number;
+  sendWindowEnd: number;
+};
+
+/** Campaign hours for a local JS getDay() value. Friday may be shorter. */
+export function campaignWindowForLocalDay(
+  schedule: Pick<
+    SendSchedule,
+    | "sendWindowStart"
+    | "sendWindowEnd"
+    | "fridaySendWindowStart"
+    | "fridaySendWindowEnd"
+  >,
+  localDayOfWeek: number,
+): DaySendWindow {
+  if (localDayOfWeek === JS_FRIDAY) {
+    return {
+      sendWindowStart:
+        schedule.fridaySendWindowStart ?? schedule.sendWindowStart,
+      sendWindowEnd: schedule.fridaySendWindowEnd ?? schedule.sendWindowEnd,
+    };
+  }
+  return {
+    sendWindowStart: schedule.sendWindowStart,
+    sendWindowEnd: schedule.sendWindowEnd,
+  };
+}
 
 export type ScheduleDecision =
   | {
@@ -77,10 +113,21 @@ export function evaluateSendWindow(input: {
   now?: Date;
 }): ScheduleDecision {
   const now = input.now ?? new Date();
+  const explicitTz = resolveTimezone({
+    phoneE164: input.phoneE164,
+    timezone: input.timezone,
+    state: input.state,
+    schedule: input.schedule,
+  });
+  const clock = localClockAt(input.phoneE164, now, explicitTz);
+  const dayWindow = campaignWindowForLocalDay(
+    input.schedule,
+    clock.localDayOfWeek,
+  );
   const clamped = clampSendWindow({
     state: input.state,
-    sendWindowStart: input.schedule.sendWindowStart,
-    sendWindowEnd: input.schedule.sendWindowEnd,
+    sendWindowStart: dayWindow.sendWindowStart,
+    sendWindowEnd: dayWindow.sendWindowEnd,
     sendDays: input.schedule.sendDays,
   });
   const appliedWindow = {
@@ -90,13 +137,6 @@ export function evaluateSendWindow(input: {
     appliedState: clamped.appliedState,
   };
 
-  const explicitTz = resolveTimezone({
-    phoneE164: input.phoneE164,
-    timezone: input.timezone,
-    state: input.state,
-    schedule: input.schedule,
-  });
-  const clock = localClockAt(input.phoneE164, now, explicitTz);
   const gate = evaluateCompliance({
     consentStatus: input.consentStatus,
     dnc: input.dnc,
@@ -129,29 +169,63 @@ export function evaluateSendWindow(input: {
       phoneE164: input.phoneE164,
       timezone: clock.timezone,
       schedule: {
-        sendWindowStart: clamped.sendWindowStart,
-        sendWindowEnd: clamped.sendWindowEnd,
+        ...input.schedule,
         sendDays: clamped.sendDays,
       },
+      state: input.state,
       from: now,
     }),
   };
+}
+
+function clampedWindowAtLocalDay(
+  schedule: Pick<
+    SendSchedule,
+    | "sendWindowStart"
+    | "sendWindowEnd"
+    | "sendDays"
+    | "fridaySendWindowStart"
+    | "fridaySendWindowEnd"
+  >,
+  localDayOfWeek: number,
+  state?: string | null,
+) {
+  const dayWindow = campaignWindowForLocalDay(schedule, localDayOfWeek);
+  return clampSendWindow({
+    state,
+    sendWindowStart: dayWindow.sendWindowStart,
+    sendWindowEnd: dayWindow.sendWindowEnd,
+    sendDays: schedule.sendDays,
+  });
 }
 
 /** Next UTC time the recipient's local clock is inside send days + window. */
 export function nextEligibleUtc(input: {
   phoneE164: string;
   timezone: string;
-  schedule: Pick<SendSchedule, "sendWindowStart" | "sendWindowEnd" | "sendDays">;
+  schedule: Pick<
+    SendSchedule,
+    | "sendWindowStart"
+    | "sendWindowEnd"
+    | "sendDays"
+    | "fridaySendWindowStart"
+    | "fridaySendWindowEnd"
+  >;
+  state?: string | null;
   from: Date;
 }): Date {
   let cursor = input.from;
   for (let i = 0; i < 14 * 48; i++) {
     const clock = localClockAt(input.phoneE164, cursor, input.timezone);
-    const inDay = input.schedule.sendDays.includes(clock.localDayOfWeek);
+    const clamped = clampedWindowAtLocalDay(
+      input.schedule,
+      clock.localDayOfWeek,
+      input.state,
+    );
+    const inDay = clamped.sendDays.includes(clock.localDayOfWeek);
     const inHour =
-      clock.localHour >= input.schedule.sendWindowStart &&
-      clock.localHour < input.schedule.sendWindowEnd;
+      clock.localHour >= clamped.sendWindowStart &&
+      clock.localHour < clamped.sendWindowEnd;
     if (inDay && inHour) {
       const localStart = setMilliseconds(
         setSeconds(
@@ -167,9 +241,14 @@ export function nextEligibleUtc(input: {
 
   const tomorrow = addMinutes(input.from, 24 * 60);
   const tClock = localClockAt(input.phoneE164, tomorrow, input.timezone);
+  const tomorrowWindow = clampedWindowAtLocalDay(
+    input.schedule,
+    tClock.localDayOfWeek,
+    input.state,
+  );
   const localOpen = setMilliseconds(
     setSeconds(
-      setMinutes(setHours(tClock.localDate, input.schedule.sendWindowStart), 0),
+      setMinutes(setHours(tClock.localDate, tomorrowWindow.sendWindowStart), 0),
       0,
     ),
     0,

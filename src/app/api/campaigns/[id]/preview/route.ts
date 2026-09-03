@@ -57,12 +57,7 @@ export async function POST(req: Request, ctx: Ctx) {
     timezone: lead.timezone,
     dnc: lead.dnc,
     consentStatus: lead.consentStatus,
-    schedule: {
-      sendWindowStart: campaign.schedule.sendWindowStart,
-      sendWindowEnd: campaign.schedule.sendWindowEnd,
-      sendDays: campaign.schedule.sendDays,
-      requireConsent: campaign.schedule.requireConsent,
-    },
+    schedule: campaign.schedule,
   });
 
   return NextResponse.json({

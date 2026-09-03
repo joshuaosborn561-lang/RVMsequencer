@@ -5,6 +5,12 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { guessFieldMapping, parseCsv } from "@/lib/csv";
+import {
+  DEFAULT_FRIDAY_SEND_WINDOW_END,
+  DEFAULT_FRIDAY_SEND_WINDOW_START,
+  DEFAULT_SEND_WINDOW_END,
+  DEFAULT_SEND_WINDOW_START,
+} from "@/lib/hardening/constants";
 import type { CampaignRecord, LeadRecord } from "@/lib/store/types";
 
 /** Smartlead campaign tabs: Analytics → Leads → Sequence → Accounts → Settings → Launch */
@@ -295,8 +301,12 @@ function AnalyticsTab({
           </li>
           <li>
             Schedule: {campaign.schedule.sendWindowStart}:00–
-            {campaign.schedule.sendWindowEnd}:00 ·{" "}
-            {campaign.schedule.timezoneMode}
+            {campaign.schedule.sendWindowEnd}:00
+            {campaign.schedule.fridaySendWindowStart != null ||
+            campaign.schedule.fridaySendWindowEnd != null
+              ? ` · Fri ${campaign.schedule.fridaySendWindowStart ?? campaign.schedule.sendWindowStart}:00–${campaign.schedule.fridaySendWindowEnd ?? campaign.schedule.sendWindowEnd}:00`
+              : ""}{" "}
+            · {campaign.schedule.timezoneMode}
           </li>
           <li>Phone lines assigned: {campaign.lineIds.length}</li>
           <li>Sequence steps: {campaign.steps.length}</li>
@@ -814,12 +824,24 @@ function ScheduleTab({
   const s = campaign.schedule;
   const [start, setStart] = useState(String(s.sendWindowStart));
   const [end, setEnd] = useState(String(s.sendWindowEnd));
+  const [fridayStart, setFridayStart] = useState(
+    s.fridaySendWindowStart != null ? String(s.fridaySendWindowStart) : "",
+  );
+  const [fridayEnd, setFridayEnd] = useState(
+    s.fridaySendWindowEnd != null ? String(s.fridaySendWindowEnd) : "",
+  );
   const [tz, setTz] = useState(s.timezoneMode);
   const [days, setDays] = useState(s.sendDays.join(","));
 
   useEffect(() => {
     setStart(String(s.sendWindowStart));
     setEnd(String(s.sendWindowEnd));
+    setFridayStart(
+      s.fridaySendWindowStart != null ? String(s.fridaySendWindowStart) : "",
+    );
+    setFridayEnd(
+      s.fridaySendWindowEnd != null ? String(s.fridaySendWindowEnd) : "",
+    );
     setTz(s.timezoneMode);
     setDays(s.sendDays.join(","));
   }, [s]);
@@ -844,18 +866,34 @@ function ScheduleTab({
         Schedule configuration
       </h3>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        <Field label="Start hour (local)">
+        <Field label="Start hour (local, Mon–Thu)">
           <input
             className={inputClass}
             value={start}
             onChange={(e) => setStart(e.target.value)}
           />
         </Field>
-        <Field label="End hour (local, exclusive)">
+        <Field label="End hour (local, exclusive, Mon–Thu)">
           <input
             className={inputClass}
             value={end}
             onChange={(e) => setEnd(e.target.value)}
+          />
+        </Field>
+        <Field label="Friday start hour (optional)">
+          <input
+            className={inputClass}
+            value={fridayStart}
+            placeholder={`${s.sendWindowStart} (same as main)`}
+            onChange={(e) => setFridayStart(e.target.value)}
+          />
+        </Field>
+        <Field label="Friday end hour (optional, exclusive)">
+          <input
+            className={inputClass}
+            value={fridayEnd}
+            placeholder={`${s.sendWindowEnd} (same as main)`}
+            onChange={(e) => setFridayEnd(e.target.value)}
           />
         </Field>
         <Field label="Active days (0=Sun … 6=Sat)">
@@ -879,8 +917,11 @@ function ScheduleTab({
         </Field>
       </div>
       <p className="mt-2 text-xs text-[var(--muted)]">
-        Daily volume is limited by each line&apos;s warmup cap (not a campaign-day
-        budget). Seed/canary numbers always drop first.
+        End hours are exclusive (13 = last send 12:59 local). Leave Friday blank
+        to use the main window every send day. New campaigns default to Mon–Thu
+        9–17 and Friday 9–13, recipient-local. Daily volume is limited by each
+        line&apos;s warmup cap (not a campaign-day budget). Seed/canary numbers
+        always drop first.
       </p>
 
       <h3 className="mt-6 text-sm font-semibold uppercase tracking-wider text-[var(--muted)]">
@@ -941,8 +982,14 @@ function ScheduleTab({
           void onSave({
             schedule: {
               ...campaign.schedule,
-              sendWindowStart: Number(start) || 9,
-              sendWindowEnd: Number(end) || 20,
+              sendWindowStart: Number(start) || DEFAULT_SEND_WINDOW_START,
+              sendWindowEnd: Number(end) || DEFAULT_SEND_WINDOW_END,
+              fridaySendWindowStart: fridayStart.trim()
+                ? Number(fridayStart) || DEFAULT_FRIDAY_SEND_WINDOW_START
+                : null,
+              fridaySendWindowEnd: fridayEnd.trim()
+                ? Number(fridayEnd) || DEFAULT_FRIDAY_SEND_WINDOW_END
+                : null,
               timezoneMode: tz,
               sendDays: days
                 .split(",")

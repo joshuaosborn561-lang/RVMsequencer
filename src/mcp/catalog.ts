@@ -124,8 +124,19 @@ export const mcpTools: McpToolDef[] = [
         schedule: {
           type: "object",
           properties: {
-            sendWindowStart: { type: "integer", description: "Local hour 0–23" },
-            sendWindowEnd: { type: "integer", description: "Local hour 1–24" },
+            sendWindowStart: { type: "integer", description: "Local hour 0–23 (Mon–Thu default 9)" },
+            sendWindowEnd: {
+              type: "integer",
+              description: "Local hour 1–24 exclusive (Mon–Thu default 17)",
+            },
+            fridaySendWindowStart: {
+              type: "integer",
+              description: "Optional Friday start hour; omit to use sendWindowStart",
+            },
+            fridaySendWindowEnd: {
+              type: "integer",
+              description: "Optional Friday exclusive end hour (default 13); omit to use sendWindowEnd",
+            },
             sendDays: {
               type: "array",
               items: { type: "integer" },
@@ -575,6 +586,8 @@ export const mcpTools: McpToolDef[] = [
           properties: {
             sendWindowStart: { type: "integer" },
             sendWindowEnd: { type: "integer" },
+            fridaySendWindowStart: { type: "integer" },
+            fridaySendWindowEnd: { type: "integer" },
             sendDays: { type: "array", items: { type: "integer" } },
             timezoneMode: { type: "string", enum: ["RECIPIENT_LOCAL", "FIXED"] },
             fixedTimezone: { type: "string" },

@@ -49,8 +49,15 @@ export type CampaignRecord = {
   schedule: {
     sendWindowStart: number;
     sendWindowEnd: number;
+    /**
+     * Optional Friday-only window (JS getDay() === 5).
+     * When omitted, Friday uses sendWindowStart / sendWindowEnd.
+     * End is exclusive (hour < fridaySendWindowEnd).
+     */
+    fridaySendWindowStart?: number | null;
+    fridaySendWindowEnd?: number | null;
     sendDays: number[];
-        timezoneMode: "RECIPIENT_LOCAL" | "FIXED";
+    timezoneMode: "RECIPIENT_LOCAL" | "FIXED";
     fixedTimezone?: string;
     /** @deprecated Ignored — per-line dailyCap is the volume limit. */
     newLeadsPerDay: number;
@@ -256,6 +263,8 @@ export type ClaudePreferences = {
   defaultSchedule?: {
     sendWindowStart?: number;
     sendWindowEnd?: number;
+    fridaySendWindowStart?: number | null;
+    fridaySendWindowEnd?: number | null;
     sendDays?: number[];
     timezoneMode?: "RECIPIENT_LOCAL" | "FIXED";
     fixedTimezone?: string;

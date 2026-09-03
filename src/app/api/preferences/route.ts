@@ -19,6 +19,8 @@ const Body = z.object({
     .object({
       sendWindowStart: z.number().int().min(0).max(23).optional(),
       sendWindowEnd: z.number().int().min(1).max(24).optional(),
+      fridaySendWindowStart: z.number().int().min(0).max(23).nullable().optional(),
+      fridaySendWindowEnd: z.number().int().min(1).max(24).nullable().optional(),
       sendDays: z.array(z.number().int().min(0).max(6)).optional(),
       timezoneMode: z.enum(["RECIPIENT_LOCAL", "FIXED"]).optional(),
       fixedTimezone: z.string().optional(),

@@ -51,6 +51,8 @@ const SingleBody = z.object({
     schedule: z.object({
       sendWindowStart: z.number().int().min(0).max(23),
       sendWindowEnd: z.number().int().min(1).max(24),
+      fridaySendWindowStart: z.number().int().min(0).max(23).nullable().optional(),
+      fridaySendWindowEnd: z.number().int().min(1).max(24).nullable().optional(),
       sendDays: z.array(z.number().int().min(0).max(6)).min(1),
       requireConsent: z.boolean().optional(),
     }),

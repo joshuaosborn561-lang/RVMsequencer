@@ -285,6 +285,29 @@ export const mcpTools: McpToolDef[] = [
     covers: ["src/app/api/campaigns/[id]/leads/from-url/route.ts"],
   },
   {
+    name: "leads_suppress",
+    description:
+      "Suppress one campaign lead (status SUPPRESSED, dnc=true, cancel that lead's unsent queue). Default reason LANE_MISMATCH. Does not global-suppress the phone, bulk-replace, or rewrite SENT/FAILED history. Requires CRON_SECRET.",
+    method: "POST",
+    path: "/api/campaigns/{id}/leads/{leadId}/suppress",
+    pathParams: ["id", "leadId"],
+    body: true,
+    auth: "cron",
+    inputSchema: {
+      type: "object",
+      required: ["id", "leadId"],
+      properties: {
+        id: { type: "string", description: "Campaign id" },
+        leadId: { type: "string", description: "Lead id in that campaign" },
+        reason: {
+          type: "string",
+          description: "Suppress reason (default LANE_MISMATCH)",
+        },
+      },
+    },
+    covers: ["src/app/api/campaigns/[id]/leads/[leadId]/suppress/route.ts"],
+  },
+  {
     name: "clients_list",
     description: "List clients (HubSpot opt-in flags included).",
     method: "GET",

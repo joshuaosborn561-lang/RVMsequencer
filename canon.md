@@ -303,6 +303,7 @@ Manual label edits are source `manual`. Nomorobo / other paid lookup APIs are no
 | Inbox DNC | `INBOX` | YES |
 | Inbox CALLBACK | `INBOX` | — |
 | Provider give-up (8 attempts) | — | — |
+| Confirmed lane / list mismatch (operator) | `LANE_MISMATCH` (or provided) | YES — **that campaign lead only** |
 
 ### Allo sync (A → B → C, first match wins)
 
@@ -321,6 +322,25 @@ Runs on tick when `ALLO_API_KEY` set; first run backfills; same `suppressLeadByP
 
 Scope: `ALLO_SUPPRESSION_SCOPE` = `global` (default) | `salesglider`.  
 Ops: create Allo tag **`do_not_call`**.
+
+### Per-lead operator suppress (narrow cleanup)
+
+`POST /api/campaigns/{id}/leads/{leadId}/suppress` — **CRON_SECRET** (`x-cron-secret` or Bearer). Body `{ "reason": "LANE_MISMATCH" }` (reason optional; default `LANE_MISMATCH`).
+
+Use this when a **paused** list has confirmed mismatches (wrong trade/lane) and only those rows must stop sending.
+
+| Rule | HARD? |
+|---|---|
+| One lead, one campaign — never other leads | YES |
+| Set lead `SUPPRESSED` + `dnc=true` + `suppressReason` | YES |
+| Cancel that lead’s PENDING/CLAIMED/FAILED/SKIPPED scheduled rows | YES |
+| Do **not** write a global `suppressions` row (unlike `suppress_phone`) | YES |
+| Do **not** rewrite SENT lead fields, SENT scheduled rows, or attempt ledger | YES |
+| Already `SUPPRESSED` → idempotent no-op (still cancels leftover queue) | YES |
+| SENT target → skip rewrite (`historyPreserved`; remaining unsent steps still cancelled) | YES |
+| Do **not** bulk `POST /leads` replace and do **not** simulate rvm-status callbacks | YES |
+
+**Operator safety:** confirm each mismatch before calling. Keep the campaign `PAUSED` until cleanup is done. Never use this as a bulk wipe.
 
 ---
 
@@ -363,6 +383,13 @@ Ops: create Allo tag **`do_not_call`**.
 - [ ] Lines attached; warmup caps understood (20→80)
 - [ ] Send days + window accepted under quiet-hours clamp
 - [ ] Explicit confirm → `ACTIVE` → `sequencer_drain` once
+
+### List cleanup (paused campaign)
+- [ ] Confirm each mismatch — do not suppress by guess
+- [ ] Per-lead suppress only (`POST .../leads/{leadId}/suppress`, reason `LANE_MISMATCH`)
+- [ ] Never bulk-replace leads; never fake rvm-status / callbacks
+- [ ] Leave SENT / FAILED / receipt history untouched
+- [ ] Stay `PAUSED` until remaining pending leads are the intended list
 
 ### Ongoing (healthy)
 - [ ] Tick every 5m; `lastDrainAt` moving

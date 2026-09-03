@@ -1307,6 +1307,337 @@ async function main() {
     );
   }
 
+  // Narrow per-lead suppress — pending, idempotent, wrong ids, SENT history
+  {
+    const {
+      createCampaign,
+      updateCampaign,
+      importLeads,
+      listLeads,
+      getLead,
+      getSuppression,
+      suppressCampaignLead,
+      updateLead,
+      createAttempt,
+      updateAttempt,
+      findAttemptByKey,
+      listAuditEvents,
+    } = await import("../src/lib/store/db");
+    const {
+      eagerScheduleCampaign,
+      listScheduledForCampaign,
+      updateScheduledSend,
+    } = await import("../src/lib/store/scheduled");
+
+    const campaign = await createCampaign({ name: "lane-mismatch-cleanup" });
+    const other = await createCampaign({ name: "other-campaign" });
+    await updateCampaign(campaign.id, {
+      status: "PAUSED",
+      audioUrl: "https://example.com/a.mp3",
+      lineIds: ["ln_1"],
+      steps: [
+        {
+          id: "s1",
+          position: 1,
+          delayDays: 0,
+          scriptTemplate: "Hey {{first_name}}",
+          audioUrl: "https://example.com/a.mp3",
+        },
+        {
+          id: "s2",
+          position: 2,
+          delayDays: 1,
+          scriptTemplate: "Follow up",
+          audioUrl: "https://example.com/b.mp3",
+        },
+      ],
+    });
+
+    await importLeads(campaign.id, [
+      {
+        phoneE164: "+14155551001",
+        firstName: "Pending",
+        custom: {},
+        dnc: false,
+        consentStatus: "UNKNOWN",
+      },
+      {
+        phoneE164: "+14155551002",
+        firstName: "Keep",
+        custom: {},
+        dnc: false,
+        consentStatus: "UNKNOWN",
+      },
+      {
+        phoneE164: "+14155551003",
+        firstName: "AlreadySent",
+        custom: {},
+        dnc: false,
+        consentStatus: "UNKNOWN",
+      },
+    ]);
+    const leads = await listLeads(campaign.id);
+    const pending = leads.find((l) => l.phoneE164 === "+14155551001")!;
+    const sibling = leads.find((l) => l.phoneE164 === "+14155551002")!;
+    const sentLead = leads.find((l) => l.phoneE164 === "+14155551003")!;
+    assert.ok(pending && sibling && sentLead);
+
+    const live = await (await import("../src/lib/store/db")).getCampaign(
+      campaign.id,
+    );
+    assert.ok(live);
+    await eagerScheduleCampaign({ campaign: live!, leads });
+
+    const sentAt = "2026-09-01T15:00:00.000Z";
+    const sentKey = `${campaign.id}_${sentLead.id}_step1`;
+    await updateLead(sentLead.id, {
+      status: "SENT",
+      sentAt,
+      providerMessageId: "sess_keep_history",
+      attemptCount: 1,
+      currentStepPosition: 1,
+    });
+    const sentAttempt = await createAttempt({
+      campaignId: campaign.id,
+      leadId: sentLead.id,
+      idempotencyKey: sentKey,
+    });
+    await updateAttempt(sentAttempt.id, {
+      status: "SENT",
+      providerMessageId: "sess_keep_history",
+      completedAt: sentAt,
+    });
+
+    const queueBefore = await listScheduledForCampaign(campaign.id);
+    const sentStep1 = queueBefore.find(
+      (s) => s.leadId === sentLead.id && s.stepPosition === 1,
+    )!;
+    assert.ok(sentStep1);
+    await updateScheduledSend(sentStep1.id, {
+      status: "SENT",
+      providerMsgId: "sess_keep_history",
+      deliveryStatus: "delivered",
+    });
+
+    const failedKey = `${campaign.id}_${pending.id}_step1`;
+    const failedAttempt = await createAttempt({
+      campaignId: campaign.id,
+      leadId: pending.id,
+      idempotencyKey: failedKey,
+    });
+    await updateAttempt(failedAttempt.id, {
+      status: "FAILED",
+      reason: "PROVIDER_TEMP",
+    });
+
+    const first = await suppressCampaignLead(campaign.id, pending.id, {
+      reason: "LANE_MISMATCH",
+    });
+    assert.equal(first.ok, true);
+    if (first.ok) {
+      assert.equal(first.lead.status, "SUPPRESSED");
+      assert.equal(first.lead.dnc, true);
+      assert.equal(first.lead.suppressReason, "LANE_MISMATCH");
+      assert.equal(first.idempotent, false);
+      assert.equal(first.historyPreserved, false);
+      assert.ok(first.cancelledScheduled >= 1);
+    }
+
+    const afterPending = await getLead(campaign.id, pending.id);
+    assert.equal(afterPending?.status, "SUPPRESSED");
+    assert.equal(afterPending?.dnc, true);
+    assert.equal(afterPending?.suppressReason, "LANE_MISMATCH");
+
+    const afterSibling = await getLead(campaign.id, sibling.id);
+    assert.equal(afterSibling?.status, "PENDING");
+    assert.equal(afterSibling?.dnc, false);
+    assert.equal(afterSibling?.suppressReason, undefined);
+
+    assert.equal(
+      await getSuppression("+14155551001"),
+      null,
+      "per-lead suppress must not write a global suppression row",
+    );
+
+    const queueAfterPending = await listScheduledForCampaign(campaign.id);
+    assert.ok(
+      queueAfterPending
+        .filter((s) => s.leadId === pending.id)
+        .every((s) => s.status === "CANCELLED" || s.status === "SENT"),
+    );
+    assert.ok(
+      queueAfterPending.some(
+        (s) => s.leadId === sibling.id && s.status === "PENDING",
+      ),
+      "sibling scheduled rows must stay pending",
+    );
+
+    const failedAfter = await findAttemptByKey(failedKey);
+    assert.equal(failedAfter?.status, "FAILED");
+    assert.equal(failedAfter?.reason, "PROVIDER_TEMP");
+    assert.equal(failedAfter?.id, failedAttempt.id);
+
+    const again = await suppressCampaignLead(campaign.id, pending.id, {
+      reason: "LANE_MISMATCH",
+    });
+    assert.equal(again.ok, true);
+    if (again.ok) {
+      assert.equal(again.idempotent, true);
+      assert.equal(again.lead.status, "SUPPRESSED");
+      assert.equal(again.lead.suppressReason, "LANE_MISMATCH");
+    }
+
+    const missingCampaign = await suppressCampaignLead(
+      "cmp_does_not_exist",
+      pending.id,
+    );
+    assert.equal(missingCampaign.ok, false);
+    if (!missingCampaign.ok) {
+      assert.equal(missingCampaign.error, "campaign_not_found");
+    }
+
+    const wrongCampaign = await suppressCampaignLead(other.id, pending.id);
+    assert.equal(wrongCampaign.ok, false);
+    if (!wrongCampaign.ok) {
+      assert.equal(wrongCampaign.error, "lead_not_found");
+    }
+
+    const missingLead = await suppressCampaignLead(
+      campaign.id,
+      "lead_does_not_exist",
+    );
+    assert.equal(missingLead.ok, false);
+    if (!missingLead.ok) {
+      assert.equal(missingLead.error, "lead_not_found");
+    }
+
+    const sentSnapshot = await getLead(campaign.id, sentLead.id);
+    const sentAttemptBefore = await findAttemptByKey(sentKey);
+    const sentQueueBefore = (await listScheduledForCampaign(campaign.id)).find(
+      (s) => s.id === sentStep1.id,
+    );
+    assert.ok(sentSnapshot && sentAttemptBefore && sentQueueBefore);
+
+    const sentResult = await suppressCampaignLead(campaign.id, sentLead.id, {
+      reason: "LANE_MISMATCH",
+    });
+    assert.equal(sentResult.ok, true);
+    if (sentResult.ok) {
+      assert.equal(sentResult.historyPreserved, true);
+      assert.equal(sentResult.lead.status, "SENT");
+      assert.equal(sentResult.lead.sentAt, sentAt);
+      assert.equal(sentResult.lead.providerMessageId, "sess_keep_history");
+      assert.equal(sentResult.lead.dnc, false);
+    }
+
+    const sentAfter = await getLead(campaign.id, sentLead.id);
+    assert.deepEqual(
+      {
+        status: sentAfter?.status,
+        sentAt: sentAfter?.sentAt,
+        providerMessageId: sentAfter?.providerMessageId,
+        dnc: sentAfter?.dnc,
+        attemptCount: sentAfter?.attemptCount,
+        suppressReason: sentAfter?.suppressReason,
+      },
+      {
+        status: "SENT",
+        sentAt,
+        providerMessageId: "sess_keep_history",
+        dnc: false,
+        attemptCount: 1,
+        suppressReason: undefined,
+      },
+    );
+
+    const sentAttemptAfter = await findAttemptByKey(sentKey);
+    assert.equal(sentAttemptAfter?.status, "SENT");
+    assert.equal(sentAttemptAfter?.providerMessageId, "sess_keep_history");
+    assert.equal(sentAttemptAfter?.completedAt, sentAt);
+    assert.equal(sentAttemptAfter?.updatedAt, sentAttemptBefore?.updatedAt);
+
+    const sentQueueAfter = (await listScheduledForCampaign(campaign.id)).find(
+      (s) => s.id === sentStep1.id,
+    );
+    assert.equal(sentQueueAfter?.status, "SENT");
+    assert.equal(sentQueueAfter?.providerMsgId, "sess_keep_history");
+    assert.equal(sentQueueAfter?.deliveryStatus, "delivered");
+    assert.ok(
+      (await listScheduledForCampaign(campaign.id))
+        .filter((s) => s.leadId === sentLead.id && s.stepPosition > 1)
+        .every((s) => s.status === "CANCELLED"),
+      "unsent follow-up steps on a SENT lead still cancel",
+    );
+
+    const siblingFinal = await getLead(campaign.id, sibling.id);
+    assert.equal(siblingFinal?.status, "PENDING");
+
+    const suppressAudits = await listAuditEvents({ campaignId: campaign.id });
+    assert.ok(
+      suppressAudits.some(
+        (a) =>
+          a.action === "SUPPRESSED" &&
+          a.entityId === pending.id &&
+          (a.detail as { reason?: string } | undefined)?.reason ===
+            "LANE_MISMATCH",
+      ),
+    );
+
+    process.env.CRON_SECRET = process.env.CRON_SECRET || "verify-cron-secret";
+    const { POST: suppressPost } = await import(
+      "../src/app/api/campaigns/[id]/leads/[leadId]/suppress/route"
+    );
+    const unauth = await suppressPost(
+      new Request("http://local/api/campaigns/x/leads/y/suppress", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+      { params: Promise.resolve({ id: campaign.id, leadId: sibling.id }) },
+    );
+    assert.equal(unauth.status, 401);
+
+    const httpOk = await suppressPost(
+      new Request("http://local/api/campaigns/x/leads/y/suppress", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-cron-secret": process.env.CRON_SECRET,
+        },
+        body: JSON.stringify({ reason: "LANE_MISMATCH" }),
+      }),
+      { params: Promise.resolve({ id: campaign.id, leadId: sibling.id }) },
+    );
+    assert.equal(httpOk.status, 200);
+    const httpBody = (await httpOk.json()) as {
+      ok: boolean;
+      lead: { status: string; dnc: boolean; suppressReason?: string };
+      idempotent: boolean;
+    };
+    assert.equal(httpBody.ok, true);
+    assert.equal(httpBody.lead.status, "SUPPRESSED");
+    assert.equal(httpBody.lead.dnc, true);
+    assert.equal(httpBody.lead.suppressReason, "LANE_MISMATCH");
+
+    const http404 = await suppressPost(
+      new Request("http://local/api/campaigns/x/leads/y/suppress", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${process.env.CRON_SECRET}`,
+        },
+        body: "{}",
+      }),
+      {
+        params: Promise.resolve({
+          id: campaign.id,
+          leadId: "lead_missing",
+        }),
+      },
+    );
+    assert.equal(http404.status, 404);
+  }
+
   console.log("verify-core: all assertions passed");
 }
 

@@ -338,6 +338,101 @@ export async function listLeads(campaignId: string) {
   return (await readStoreUnlocked()).leads.filter((l) => l.campaignId === campaignId);
 }
 
+/** Lead must belong to the campaign — mismatch is not found. */
+export async function getLead(
+  campaignId: string,
+  leadId: string,
+): Promise<LeadRecord | null> {
+  const lead = (await readStoreUnlocked()).leads.find((l) => l.id === leadId);
+  if (!lead || lead.campaignId !== campaignId) return null;
+  return normalizeLead(lead);
+}
+
+export type SuppressCampaignLeadResult =
+  | {
+      ok: true;
+      lead: LeadRecord;
+      cancelledScheduled: number;
+      idempotent: boolean;
+      historyPreserved: boolean;
+    }
+  | { ok: false; error: "campaign_not_found" | "lead_not_found" };
+
+/**
+ * Narrow per-lead suppress for one campaign row.
+ * Does not write a global suppression (unlike suppressLeadByPhone).
+ * Never rewrites SENT lead fields, SENT scheduled rows, or attempt history.
+ */
+export async function suppressCampaignLead(
+  campaignId: string,
+  leadId: string,
+  opts?: { reason?: string; actor?: AuditEventRecord["actor"] },
+): Promise<SuppressCampaignLeadResult> {
+  const reason = (opts?.reason ?? "LANE_MISMATCH").trim() || "LANE_MISMATCH";
+  const campaign = await getCampaign(campaignId);
+  if (!campaign) return { ok: false, error: "campaign_not_found" };
+
+  const mutated = await mutateStore((store) => {
+    const lead = store.leads.find((l) => l.id === leadId);
+    if (!lead || lead.campaignId !== campaignId) {
+      return { error: "lead_not_found" as const };
+    }
+    const status = lead.status ?? "PENDING";
+    if (status === "SENT") {
+      return {
+        lead: normalizeLead(lead),
+        changed: false,
+        idempotent: false,
+        historyPreserved: true,
+      };
+    }
+    if (status === "SUPPRESSED") {
+      return {
+        lead: normalizeLead(lead),
+        changed: false,
+        idempotent: true,
+        historyPreserved: false,
+      };
+    }
+    lead.status = "SUPPRESSED";
+    lead.dnc = true;
+    lead.suppressReason = reason;
+    return {
+      lead: normalizeLead(lead),
+      changed: true,
+      idempotent: false,
+      historyPreserved: false,
+    };
+  });
+
+  if ("error" in mutated) {
+    return { ok: false, error: mutated.error };
+  }
+
+  const { cancelScheduledForLead } = await import("@/lib/store/scheduled");
+  const cancelledScheduled = await cancelScheduledForLead(leadId, reason);
+
+  if (mutated.changed) {
+    await appendAudit({
+      action: "SUPPRESSED",
+      actor: opts?.actor ?? "api",
+      entityType: "lead",
+      entityId: leadId,
+      campaignId,
+      clientId: campaign.clientId,
+      detail: { reason, scope: "campaign_lead" },
+    });
+  }
+
+  return {
+    ok: true,
+    lead: mutated.lead,
+    cancelledScheduled,
+    idempotent: mutated.idempotent,
+    historyPreserved: mutated.historyPreserved,
+  };
+}
+
 export async function importLeads(
   campaignId: string,
   leads: Omit<

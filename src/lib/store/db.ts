@@ -4,7 +4,12 @@ import path from "node:path";
 import {
   CAMPAIGN_LEASE_MS,
   DEFAULT_CAMPAIGN_RAMP,
+  DEFAULT_FRIDAY_SEND_WINDOW_END,
+  DEFAULT_FRIDAY_SEND_WINDOW_START,
   DEFAULT_LINE_MIN_GAP_SEC,
+  DEFAULT_SEND_DAYS,
+  DEFAULT_SEND_WINDOW_END,
+  DEFAULT_SEND_WINDOW_START,
   HARD_CAP_DAILY_SENDS,
 } from "@/lib/hardening/constants";
 import { createAuditEvent } from "@/lib/audit/log";
@@ -242,9 +247,11 @@ export async function createCampaign(input: {
       ],
       lineIds: [],
       schedule: {
-        sendWindowStart: 9,
-        sendWindowEnd: 20,
-        sendDays: [1, 2, 3, 4, 5],
+        sendWindowStart: DEFAULT_SEND_WINDOW_START,
+        sendWindowEnd: DEFAULT_SEND_WINDOW_END,
+        fridaySendWindowStart: DEFAULT_FRIDAY_SEND_WINDOW_START,
+        fridaySendWindowEnd: DEFAULT_FRIDAY_SEND_WINDOW_END,
+        sendDays: [...DEFAULT_SEND_DAYS],
         timezoneMode: "RECIPIENT_LOCAL",
         newLeadsPerDay: 200,
         requireConsent: false,

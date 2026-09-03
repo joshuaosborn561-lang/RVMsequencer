@@ -15,6 +15,15 @@ export const MAX_ATTEMPTS_PER_CONTACT_PER_DAY = 2;
 /** Soft jitter fallback when pacing can't be derived (seconds). */
 export const SEND_JITTER_MAX_SEC = 90;
 
+/** SalesGlider default send window (Mon–Thu). End exclusive. */
+export const DEFAULT_SEND_WINDOW_START = 9;
+export const DEFAULT_SEND_WINDOW_END = 17;
+/** Friday shorter window when set on the campaign. End exclusive (hour < 13). */
+export const DEFAULT_FRIDAY_SEND_WINDOW_START = 9;
+export const DEFAULT_FRIDAY_SEND_WINDOW_END = 13;
+/** JS getDay() values: Mon–Fri. */
+export const DEFAULT_SEND_DAYS = [1, 2, 3, 4, 5];
+
 /** Min seconds between sends on the same line (mailbox spacing). */
 export const DEFAULT_LINE_MIN_GAP_SEC = 600;
 

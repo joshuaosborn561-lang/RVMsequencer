@@ -233,7 +233,11 @@ Campaign window is **clamped**, never expanded:
 - end = min(campaign, federal, state)  
 - days = intersection with state `allowedDays` when set  
 
-**Default schedule:** 09–20, Mon–Fri, `RECIPIENT_LOCAL`.
+**End is exclusive:** local hour must be `< sendWindowEnd` (end 13 = last send 12:59).
+
+**Friday optional shorter window:** `fridaySendWindowStart` / `fridaySendWindowEnd`. When the recipient-local day is Friday (`getDay() === 5`) and either override is set, those hours are clamped instead of the main window. When both are absent, Friday uses `sendWindowStart` / `sendWindowEnd` (existing campaigns keep one window all send days).
+
+**Default schedule (SalesGlider):** Mon–Thu 09–17, Friday 09–13, weekdays, `RECIPIENT_LOCAL`.
 
 | State | Stricter rule |
 |---|---|
@@ -385,7 +389,7 @@ Ops: create Allo tag **`do_not_call`**.
 | Max attempts / contact / UTC day | 2 | YES |
 | Max provider send attempts | 8 | YES |
 | Federal quiet hours | 08–21 | YES |
-| Default campaign window | 09–20 Mon–Fri | Soft default |
+| Default campaign window | 09–17 Mon–Thu, 09–13 Fri | Soft default |
 | Seed inject / campaign / day | 2 | Soft |
 | Allo Rule C duration | &gt; 15s | YES for C |
 | Call forward timeout floor | 90s | Ops YES |

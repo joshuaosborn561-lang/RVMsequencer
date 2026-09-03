@@ -26,8 +26,11 @@ import {
 } from "../src/lib/reputation/check";
 import { estimateRun, DELIVERY_SCENARIOS, TTS_SCENARIOS } from "../src/lib/cost/estimate";
 import { mockRvmProvider } from "../src/lib/providers/mock-rvm";
-import { timezoneFromPhone } from "../src/lib/timezone/from-phone";
-import { evaluateSendWindow } from "../src/lib/sequencer/send-window";
+import { localClockAt, timezoneFromPhone } from "../src/lib/timezone/from-phone";
+import {
+  campaignWindowForLocalDay,
+  evaluateSendWindow,
+} from "../src/lib/sequencer/send-window";
 import { mockDncScrubber, scrubWithAll } from "../src/lib/dnc/scrub";
 import { runAttempt } from "../src/lib/sequencer/run-attempt";
 import {
@@ -607,6 +610,133 @@ async function main() {
   });
   assert.equal(inside.allow, true);
 
+  // Friday optional window: end exclusive (13 = last send 12:59). Mon–Thu keep 9–17.
+  {
+    const fridaySchedule = {
+      sendWindowStart: 9,
+      sendWindowEnd: 17,
+      fridaySendWindowStart: 9,
+      fridaySendWindowEnd: 13,
+      sendDays: [1, 2, 3, 4, 5],
+    };
+    assert.deepEqual(campaignWindowForLocalDay(fridaySchedule, 4), {
+      sendWindowStart: 9,
+      sendWindowEnd: 17,
+    });
+    assert.deepEqual(campaignWindowForLocalDay(fridaySchedule, 5), {
+      sendWindowStart: 9,
+      sendWindowEnd: 13,
+    });
+    assert.deepEqual(
+      campaignWindowForLocalDay(
+        { sendWindowStart: 9, sendWindowEnd: 17 },
+        5,
+      ),
+      { sendWindowStart: 9, sendWindowEnd: 17 },
+    );
+
+    const friPhone = "+14155550123";
+    const friTz = "America/Los_Angeles";
+    // 2026-09-04 is Friday; PDT = UTC−7
+    const fri1259 = new Date("2026-09-04T19:59:00.000Z");
+    const fri1300 = new Date("2026-09-04T20:00:00.000Z");
+    const thu1600 = new Date("2026-09-03T23:00:00.000Z");
+    const fri1600 = new Date("2026-09-04T23:00:00.000Z");
+
+    const clock1259 = localClockAt(friPhone, fri1259, friTz);
+    assert.equal(clock1259.localDayOfWeek, 5);
+    assert.equal(clock1259.localHour, 12);
+    const clock1300 = localClockAt(friPhone, fri1300, friTz);
+    assert.equal(clock1300.localDayOfWeek, 5);
+    assert.equal(clock1300.localHour, 13);
+    const clockThu = localClockAt(friPhone, thu1600, friTz);
+    assert.equal(clockThu.localDayOfWeek, 4);
+    assert.equal(clockThu.localHour, 16);
+
+    const friAllowed = evaluateSendWindow({
+      phoneE164: friPhone,
+      timezone: friTz,
+      dnc: false,
+      consentStatus: "UNKNOWN",
+      schedule: fridaySchedule,
+      now: fri1259,
+    });
+    assert.equal(friAllowed.allow, true);
+    assert.equal(friAllowed.appliedWindow.sendWindowEnd, 13);
+
+    const friBlocked = evaluateSendWindow({
+      phoneE164: friPhone,
+      timezone: friTz,
+      dnc: false,
+      consentStatus: "UNKNOWN",
+      schedule: fridaySchedule,
+      now: fri1300,
+    });
+    assert.equal(friBlocked.allow, false);
+    if (!friBlocked.allow) assert.equal(friBlocked.reason, "OUTSIDE_SEND_WINDOW");
+    assert.equal(friBlocked.appliedWindow.sendWindowEnd, 13);
+
+    const thuAllowed = evaluateSendWindow({
+      phoneE164: friPhone,
+      timezone: friTz,
+      dnc: false,
+      consentStatus: "UNKNOWN",
+      schedule: fridaySchedule,
+      now: thu1600,
+    });
+    assert.equal(thuAllowed.allow, true);
+    assert.equal(thuAllowed.appliedWindow.sendWindowEnd, 17);
+
+    const legacyFriday = evaluateSendWindow({
+      phoneE164: friPhone,
+      timezone: friTz,
+      dnc: false,
+      consentStatus: "UNKNOWN",
+      schedule: {
+        sendWindowStart: 9,
+        sendWindowEnd: 17,
+        sendDays: [1, 2, 3, 4, 5],
+      },
+      now: fri1600,
+    });
+    assert.equal(legacyFriday.allow, true);
+    assert.equal(legacyFriday.appliedWindow.sendWindowEnd, 17);
+
+    const fridayAttempt = await runAttempt({
+      lead: {
+        id: "l-fri",
+        phoneE164: friPhone,
+        timezone: friTz,
+        consentStatus: "UNKNOWN",
+        dnc: false,
+      },
+      campaign: {
+        id: "c-fri",
+        scriptTemplate: "Hey",
+        audioUrl: "https://example.com/a.mp3",
+        schedule: fridaySchedule,
+      },
+      lines: [
+        {
+          id: "ln",
+          e164: "+14155550999",
+          areaCode: "415",
+          status: "HEALTHY",
+          dailyCap: 80,
+          sentToday: 0,
+          reputationLabel: "UNFLAGGED",
+        },
+      ],
+      dncScrubbers: [],
+      delivery: mockRvmProvider,
+      now: fri1300,
+    });
+    assert.equal(fridayAttempt.status, "SKIPPED");
+    if (fridayAttempt.status === "SKIPPED") {
+      assert.equal(fridayAttempt.reason, "OUTSIDE_SEND_WINDOW");
+    }
+  }
+
   // DNC mock scrub
   const scrub = await scrubWithAll([mockDncScrubber], [
     "+14155550000",
@@ -768,6 +898,12 @@ async function main() {
       }) ?? "UTC";
 
     const campaign = await createCampaign({ name: "jitter-defer-drain" });
+    assert.equal(campaign.schedule.sendWindowStart, 9);
+    assert.equal(campaign.schedule.sendWindowEnd, 17);
+    assert.equal(campaign.schedule.fridaySendWindowStart, 9);
+    assert.equal(campaign.schedule.fridaySendWindowEnd, 13);
+    assert.deepEqual(campaign.schedule.sendDays, [1, 2, 3, 4, 5]);
+    assert.equal(campaign.schedule.timezoneMode, "RECIPIENT_LOCAL");
     await updateCampaign(campaign.id, {
       status: "ACTIVE",
       audioUrl: "https://example.com/a.mp3",
@@ -775,6 +911,8 @@ async function main() {
       schedule: {
         sendWindowStart: 8,
         sendWindowEnd: 21,
+        fridaySendWindowStart: null,
+        fridaySendWindowEnd: null,
         sendDays: [0, 1, 2, 3, 4, 5, 6],
         timezoneMode: "FIXED",
         fixedTimezone: inWindowTz,
@@ -923,6 +1061,8 @@ async function main() {
         schedule: {
           sendWindowStart: 8,
           sendWindowEnd: 21,
+          fridaySendWindowStart: null,
+          fridaySendWindowEnd: null,
           sendDays: [0, 1, 2, 3, 4, 5, 6],
           timezoneMode: "FIXED",
           fixedTimezone: "UTC",
@@ -1032,6 +1172,8 @@ async function main() {
       schedule: {
         sendWindowStart: 8,
         sendWindowEnd: 21,
+        fridaySendWindowStart: null,
+        fridaySendWindowEnd: null,
         sendDays: [0, 1, 2, 3, 4, 5, 6],
         timezoneMode: "FIXED",
         fixedTimezone: "UTC",

@@ -40,6 +40,8 @@ Add Redis in Railway: **New → Database → Redis**, then variable reference `R
 
 ---
 
+Buy or import DIDs from the app (**Lines → + Connect number**) or MCP `lines_search` / `lines_purchase` (confirm first — purchase charges Twilio).
+
 ## 3. Twilio wiring (each campaign DID)
 
 | Webhook | Method | URL |

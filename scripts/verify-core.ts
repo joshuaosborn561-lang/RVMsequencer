@@ -1638,6 +1638,173 @@ async function main() {
     assert.equal(http404.status, 404);
   }
 
+  // Twilio search / purchase — mocked HTTP only, never live Twilio
+  {
+    const prevSid = process.env.TWILIO_ACCOUNT_SID;
+    const prevTok = process.env.TWILIO_AUTH_TOKEN;
+    delete process.env.TWILIO_ACCOUNT_SID;
+    delete process.env.TWILIO_AUTH_TOKEN;
+
+    const {
+      mapAvailableTwilioNumbers,
+      normalizeTwilioCountry,
+      searchAvailableTwilioNumbers,
+      provisionTwilioNumber,
+    } = await import("../src/lib/twilio/inventory");
+    const { ensureLine, listLines } = await import("../src/lib/store/db");
+
+    assert.equal(normalizeTwilioCountry("us"), "US");
+    assert.equal(normalizeTwilioCountry("CA"), "CA");
+    assert.equal(normalizeTwilioCountry("GB"), null);
+    assert.deepEqual(
+      mapAvailableTwilioNumbers({
+        available_phone_numbers: [
+          {
+            phone_number: "+12145550123",
+            friendly_name: "(214) 555-0123",
+            locality: "Dallas",
+            region: "TX",
+            capabilities: { voice: true, SMS: true, MMS: false },
+          },
+        ],
+      }),
+      [
+        {
+          e164: "+12145550123",
+          friendlyName: "(214) 555-0123",
+          locality: "Dallas",
+          region: "TX",
+          postalCode: undefined,
+          isoCountry: undefined,
+          capabilities: { voice: true, sms: true, mms: false },
+        },
+      ],
+    );
+
+    const noCreds = await searchAvailableTwilioNumbers({ areaCode: "214" });
+    assert.equal(noCreds.ok, false);
+    if (!noCreds.ok) assert.equal(noCreds.error, "TWILIO_NOT_CONFIGURED");
+
+    process.env.TWILIO_ACCOUNT_SID = "ACverify";
+    process.env.TWILIO_AUTH_TOKEN = "token_verify";
+
+    const calls: string[] = [];
+    const fetchImpl: typeof fetch = (async (url, init) => {
+      const u = String(url);
+      const method = (init?.method ?? "GET").toUpperCase();
+      calls.push(`${method} ${u}`);
+      if (u.includes("AvailablePhoneNumbers")) {
+        return new Response(
+          JSON.stringify({
+            available_phone_numbers: [
+              {
+                phone_number: "+12145550999",
+                locality: "Dallas",
+                region: "TX",
+                capabilities: { voice: true, SMS: true },
+              },
+            ],
+          }),
+        );
+      }
+      if (method === "GET" && u.includes("IncomingPhoneNumbers.json")) {
+        const owned = u.includes("%2B15555550100") || u.includes("+15555550100");
+        return new Response(
+          JSON.stringify({
+            incoming_phone_numbers: owned
+              ? [{ sid: "PN_owned", phone_number: "+15555550100" }]
+              : [],
+          }),
+        );
+      }
+      if (method === "POST" && u.includes("IncomingPhoneNumbers.json")) {
+        return new Response(JSON.stringify({ sid: "PN_bought" }));
+      }
+      return new Response(JSON.stringify({ message: "unexpected_twilio" }), {
+        status: 500,
+      });
+    }) as typeof fetch;
+
+    const searched = await searchAvailableTwilioNumbers(
+      { areaCode: "214", limit: 5 },
+      fetchImpl,
+    );
+    assert.equal(searched.ok, true);
+    if (searched.ok) {
+      assert.equal(searched.numbers[0]?.e164, "+12145550999");
+      assert.equal(searched.numbers[0]?.locality, "Dallas");
+    }
+
+    const already = await ensureLine("+14155551999");
+    const again = await provisionTwilioNumber(
+      { e164: already.e164, configureVoice: false },
+      fetchImpl,
+    );
+    assert.equal(again.ok, true);
+    if (again.ok) {
+      assert.equal(again.purchased, false);
+      assert.equal(again.imported, false);
+      assert.equal(again.line.e164, already.e164);
+    }
+    assert.equal(
+      calls.some((c) => c.startsWith("POST ")),
+      false,
+      "existing pool row must not buy a Twilio number",
+    );
+
+    const bought = await provisionTwilioNumber(
+      { e164: "+12145550991", configureVoice: false },
+      fetchImpl,
+    );
+    assert.equal(bought.ok, true);
+    if (bought.ok) {
+      assert.equal(bought.purchased, true);
+      assert.equal(bought.imported, false);
+      assert.equal(bought.line.e164, "+12145550991");
+      assert.equal(bought.twilioSid, "PN_bought");
+    }
+    assert.ok(calls.some((c) => c.startsWith("POST ")));
+    const pool = await listLines();
+    assert.ok(pool.some((l) => l.e164 === "+12145550991"));
+
+    const imported = await provisionTwilioNumber(
+      { e164: "+15555550100", configureVoice: false },
+      fetchImpl,
+    );
+    assert.equal(imported.ok, true);
+    if (imported.ok) {
+      assert.equal(imported.purchased, false);
+      assert.equal(imported.imported, true);
+      assert.equal(imported.twilioSid, "PN_owned");
+    }
+
+    const areaBuy = await provisionTwilioNumber(
+      { areaCode: "214", configureVoice: false },
+      fetchImpl,
+    );
+    assert.equal(areaBuy.ok, true);
+    if (areaBuy.ok) {
+      assert.equal(areaBuy.line.e164, "+12145550999");
+    }
+
+    const { POST: purchasePost } = await import(
+      "../src/app/api/lines/purchase/route"
+    );
+    const missing = await purchasePost(
+      new Request("http://local/api/lines/purchase", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+    );
+    assert.equal(missing.status, 400);
+
+    if (prevSid === undefined) delete process.env.TWILIO_ACCOUNT_SID;
+    else process.env.TWILIO_ACCOUNT_SID = prevSid;
+    if (prevTok === undefined) delete process.env.TWILIO_AUTH_TOKEN;
+    else process.env.TWILIO_AUTH_TOKEN = prevTok;
+  }
+
   console.log("verify-core: all assertions passed");
 }
 

@@ -18,7 +18,8 @@ export type AuditAction =
   | "SETTINGS_UPDATED"
   | "FCR_UPDATED"
   | "QUIET_HOURS_APPLIED"
-  | "RECEIPT_HEALTH";
+  | "RECEIPT_HEALTH"
+  | "LINE_PROVISIONED";
 
 export type AuditEvent = {
   id: string;

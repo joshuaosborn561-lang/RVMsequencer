@@ -21,7 +21,7 @@ Transport: Streamable HTTP (stateless JSON).
 ### Tools for the full chat flow
 - Campaigns / leads / launch: `campaigns_*`, `leads_*`
 - Audio library: `audio_list`, `audio_upload`
-- Twilio DIDs + per-line daily caps: `lines_list`, `lines_ensure`, `lines_update`
+- Twilio DIDs + per-line daily caps: `lines_list`, `lines_search`, `lines_purchase`, `lines_ensure`, `lines_update`
 - Workspace caps / forward: `settings_*`
 - Saved skill defaults: `preferences_get`, `preferences_update`
 - Start sending now: `sequencer_drain` (after `status=ACTIVE`)

@@ -516,6 +516,57 @@ export const mcpTools: McpToolDef[] = [
     covers: ["src/app/api/lines/route.ts"],
   },
   {
+    name: "lines_search",
+    description:
+      "Search Twilio for purchasable local DIDs (source=available, default) or list numbers already on the Twilio account (source=account). Does not buy. Filter by areaCode / locality / region. Confirm with the user before lines_purchase.",
+    method: "GET",
+    path: "/api/lines/available",
+    inputSchema: {
+      type: "object",
+      properties: {
+        source: {
+          type: "string",
+          enum: ["available", "account"],
+          description: "available = inventory to buy; account = already owned",
+        },
+        areaCode: { type: "string", description: "3-digit NPA, e.g. 214" },
+        contains: { type: "string" },
+        locality: { type: "string", description: "City" },
+        region: { type: "string", description: "State / region, e.g. TX" },
+        country: { type: "string", description: "US (default) or CA" },
+        limit: { type: "integer" },
+      },
+    },
+    covers: ["src/app/api/lines/available/route.ts"],
+  },
+  {
+    name: "lines_purchase",
+    description:
+      "Buy a Twilio DID (charges the Twilio account) or import one already on the account, add it to the line pool, and point Voice/SMS webhooks at this app. Pass e164 from lines_search, or areaCode to buy the first match. ALWAYS confirm with the user first — this spends money.",
+    method: "POST",
+    path: "/api/lines/purchase",
+    body: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        e164: {
+          type: "string",
+          description: "Exact number from lines_search",
+        },
+        areaCode: {
+          type: "string",
+          description: "If e164 omitted, buy the first available in this NPA",
+        },
+        country: { type: "string", description: "US (default) or CA" },
+        configureVoice: {
+          type: "boolean",
+          description: "Set Twilio webhooks (default true)",
+        },
+      },
+    },
+    covers: ["src/app/api/lines/purchase/route.ts"],
+  },
+  {
     name: "audio_list",
     description:
       "List saved voicemail audio assets. Offer these when the user can reuse a prior recording.",

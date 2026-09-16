@@ -376,6 +376,7 @@ Use this when a **paused** list has confirmed mismatches (wrong trade/lane) and 
 - [ ] `ALLO_API_KEY` + Allo tag `do_not_call`
 - [ ] Seeds upserted if canary verification wanted
 - [ ] FCR on DIDs before enabling `requireFcrRegistration`
+- [ ] Twilio DIDs: buy/import from Lines (`+ Connect number`) or MCP `lines_search` → confirm → `lines_purchase`. New rows start WARMING at 20/day. Do not buy without explicit confirm.
 
 ### Per launch
 - [ ] Sendable leads scrubbed/imported

@@ -10,3 +10,11 @@ export function toE164(phone: string): string | null {
 export function digitsOnly(phone: string): string {
   return phone.replace(/\D/g, "");
 }
+
+/** Spec: 10-digit US normalize then E.164. */
+export function normalizeContactPhone(raw: string | undefined): string | null {
+  if (!raw) return null;
+  const ten = raw.replace(/\D/g, "").match(/(\d{10})$/)?.[1];
+  if (!ten) return null;
+  return toE164(ten);
+}

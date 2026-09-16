@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
+import { getAlloSuppressionSyncStatus, runAlloSuppressionSync } from "@/lib/allo/sync";
 import {
-  getAlloSuppressionSyncStatus,
-  runAlloSuppressionSync,
-} from "@/lib/allo/sync";
-import { runSuppressionFanout } from "@/lib/suppression-fanout/engine";
+  getSuppressionFanoutStatus,
+  runSuppressionFanout,
+} from "@/lib/suppression-fanout/engine";
 
 function authorizeCron(req: Request): boolean {
   const secret = process.env.CRON_SECRET;
@@ -15,50 +15,50 @@ function authorizeCron(req: Request): boolean {
   return header === secret || auth === `Bearer ${secret}`;
 }
 
-/** GET — status (no phones). */
+/**
+ * GET — counts only. Last-run outcomes, per-destination ok/failed/pending.
+ * Never returns phones or emails.
+ */
 export async function GET(req: Request) {
   if (!authorizeCron(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  const status = await getAlloSuppressionSyncStatus();
-  return NextResponse.json(status);
+  const [allo, fanout] = await Promise.all([
+    getAlloSuppressionSyncStatus(),
+    getSuppressionFanoutStatus(),
+  ]);
+  return NextResponse.json({ allo, fanout });
 }
 
 /**
- * POST — run sync.
- * body: { backfill?: boolean, force?: boolean }
+ * POST — run Allo classification (optional) then fan-out.
+ * body: { backfill?: boolean, force?: boolean, allo?: boolean }
  */
 export async function POST(req: Request) {
   if (!authorizeCron(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  let body: { backfill?: boolean; force?: boolean } = {};
+  let body: { backfill?: boolean; force?: boolean; allo?: boolean } = {};
   try {
     const raw = await req.text();
     if (raw.trim()) body = JSON.parse(raw) as typeof body;
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
+  const force = Boolean(body.force) || Boolean(body.backfill);
+  const runAllo = body.allo !== false;
   try {
-    const result = await runAlloSuppressionSync({
+    const allo = runAllo
+      ? await runAlloSuppressionSync({
+          backfill: Boolean(body.backfill),
+          force,
+        })
+      : { ran: false, skippedReason: "skipped_by_request" };
+    const fanout = await runSuppressionFanout({
       backfill: Boolean(body.backfill),
-      force: Boolean(body.force) || Boolean(body.backfill),
+      force,
     });
-    let fanout: unknown = { ran: false, skippedReason: "not_run" };
-    try {
-      fanout = await runSuppressionFanout({
-        backfill: Boolean(body.backfill),
-        force: Boolean(body.force) || Boolean(body.backfill),
-      });
-    } catch (err) {
-      console.error("[allo-sync] fan-out failed", err);
-      fanout = {
-        ran: false,
-        skippedReason: "error",
-        error: err instanceof Error ? err.message : "unknown",
-      };
-    }
-    return NextResponse.json({ ...result, fanout });
+    return NextResponse.json({ allo, fanout });
   } catch (err) {
     const message = err instanceof Error ? err.message : "sync_failed";
     return NextResponse.json({ error: message }, { status: 500 });

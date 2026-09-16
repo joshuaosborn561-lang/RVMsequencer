@@ -201,6 +201,68 @@ export async function* iterateCallsForLine(input: {
   }
 }
 
+/** Add tags to a conversation item. Adding an existing tag is a no-op. */
+export async function addConversationTags(
+  itemId: string,
+  tags: string[],
+  idempotencyKey?: string,
+): Promise<void> {
+  if (tags.length === 0) return;
+  await alloFetch(`/v2/api/conversations/items/${encodeURIComponent(itemId)}/tags`, {
+    method: "POST",
+    body: JSON.stringify({ tags }),
+    headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {},
+  });
+}
+
+export type AlloNote = {
+  id?: string;
+  content?: string;
+  contact_number?: string;
+  allo_number?: string | null;
+};
+
+export async function listConversationNotes(input: {
+  contactNumber: string;
+  alloNumber?: string;
+}): Promise<AlloNote[]> {
+  const contact = encodeURIComponent(input.contactNumber);
+  const q = input.alloNumber
+    ? `?allo_number=${encodeURIComponent(input.alloNumber)}`
+    : "";
+  const json = await alloFetch<{ data?: AlloNote[] }>(
+    `/v2/api/conversations/${contact}/notes${q}`,
+  );
+  return json.data ?? [];
+}
+
+/** Internal note — never visible to the contact. */
+export async function createConversationNote(input: {
+  contactNumber: string;
+  alloNumber: string;
+  content: string;
+}): Promise<AlloNote> {
+  const contact = encodeURIComponent(input.contactNumber);
+  const json = await alloFetch<{ data?: AlloNote }>(
+    `/v2/api/conversations/${contact}/notes`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        content: input.content,
+        allo_number: input.alloNumber,
+      }),
+    },
+  );
+  return json.data ?? {};
+}
+
+export type AlloTag = { key?: string; name?: string; id?: string };
+
+export async function listAlloTags(): Promise<AlloTag[]> {
+  const json = await alloFetch<{ data?: AlloTag[] }>("/v2/api/tags");
+  return json.data ?? [];
+}
+
 export function isAlloSyncConfigured(): boolean {
   return Boolean(process.env.ALLO_API_KEY?.trim());
 }

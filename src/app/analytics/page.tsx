@@ -18,6 +18,17 @@ export default function AnalyticsPage() {
   const [rows, setRows] = useState<
     Array<CampaignRecord & { sent: number; leads: number }>
   >([]);
+  const [fanout, setFanout] = useState<{
+    lastRunAt: string | null;
+    outcomes: Record<string, number>;
+    destinations: Record<
+      string,
+      { ok: number; failed: number; skipped: number; pending: number }
+    >;
+    retrying: number;
+    errors: number;
+    alloDoNotCallTagPresent: boolean | null;
+  } | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -55,6 +66,11 @@ export default function AnalyticsPage() {
         failed,
       });
       setRows(detail);
+      const healthRes = await fetch("/api/health");
+      const health = (await healthRes.json()) as {
+        suppressionFanout?: typeof fanout;
+      };
+      setFanout(health.suppressionFanout ?? null);
     })();
   }, []);
 
@@ -84,6 +100,60 @@ export default function AnalyticsPage() {
           </div>
         ))}
       </section>
+
+      {fanout && (
+        <section className="mt-6 rounded-xl border border-[var(--line)] bg-white p-4">
+          <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">
+            Cross-channel suppression
+          </p>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            Last run{" "}
+            {fanout.lastRunAt
+              ? new Date(fanout.lastRunAt).toLocaleString()
+              : "not yet"}
+            {fanout.alloDoNotCallTagPresent === false
+              ? " · Allo tag do_not_call is missing — create it in Allo settings"
+              : ""}
+          </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-4">
+            {Object.entries(fanout.outcomes).map(([k, v]) => (
+              <div key={k}>
+                <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">
+                  {k.replaceAll("_", " ")}
+                </p>
+                <p className="font-[family-name:var(--font-display)] text-xl">{v}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+                <tr>
+                  <th className="py-2 font-medium">Destination</th>
+                  <th className="py-2 font-medium">Ok</th>
+                  <th className="py-2 font-medium">Failed</th>
+                  <th className="py-2 font-medium">Pending retry</th>
+                  <th className="py-2 font-medium">Skipped</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(fanout.destinations).map(([name, d]) => (
+                  <tr key={name} className="border-t border-[var(--line)]">
+                    <td className="py-2">{name}</td>
+                    <td className="py-2 font-[family-name:var(--font-mono)]">{d.ok}</td>
+                    <td className="py-2 font-[family-name:var(--font-mono)]">{d.failed}</td>
+                    <td className="py-2 font-[family-name:var(--font-mono)]">{d.pending}</td>
+                    <td className="py-2 font-[family-name:var(--font-mono)]">{d.skipped}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-sm text-[var(--muted)]">
+            Retrying {fanout.retrying} · Errors {fanout.errors}
+          </p>
+        </section>
+      )}
 
       <div className="sl-table-wrap mt-6">
         <div className="border-b border-[var(--line)] px-4 py-3 text-sm font-medium">

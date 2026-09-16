@@ -15,6 +15,7 @@ import { runAttempt } from "@/lib/sequencer/run-attempt";
 import { isSuppressed } from "@/lib/store/db";
 import { runAlloSuppressionSync } from "@/lib/allo/sync";
 import { isAlloSyncEnabled } from "@/lib/allo/client";
+import { runSuppressionFanout } from "@/lib/suppression-fanout/engine";
 
 function authorizeCron(req: Request): boolean {
   const secret = process.env.CRON_SECRET;
@@ -144,7 +145,7 @@ export async function POST(req: Request) {
     const reputation = await runDailyReputationChecks({
       force: forceReputation,
     });
-    // Hourly Allo → suppression sync (gated inside; never blocks drain on failure)
+    // Hourly Allo classify → then fan-out to central / Smartlead / Allo / RVM
     let alloSync: unknown = { ran: false, skippedReason: "disabled" };
     if (isAlloSyncEnabled()) {
       try {
@@ -157,6 +158,17 @@ export async function POST(req: Request) {
           error: err instanceof Error ? err.message : "unknown",
         };
       }
+    }
+    let suppressionFanout: unknown = { ran: false, skippedReason: "not_run" };
+    try {
+      suppressionFanout = await runSuppressionFanout();
+    } catch (err) {
+      console.error("[tick] suppression fan-out failed", err);
+      suppressionFanout = {
+        ran: false,
+        skippedReason: "error",
+        error: err instanceof Error ? err.message : "unknown",
+      };
     }
     const reconcile = await reconcileCampaigns();
     const result = await drainActiveCampaigns(limit);
@@ -175,6 +187,7 @@ export async function POST(req: Request) {
       mode: "drain",
       reputation,
       alloSync,
+      suppressionFanout,
       reconcile,
       ...result,
       receipts,

@@ -181,7 +181,8 @@ export type SuppressionRecord = {
     | "CALLBACK"
     | "MANUAL"
     | "BOUNCE"
-    | "ALLO";
+    | "ALLO"
+    | "SMARTLEAD";
   createdAt: string;
   /** Audit fields when source is ALLO (call id, line, tags, rule). */
   alloMeta?: AlloSuppressionMeta;

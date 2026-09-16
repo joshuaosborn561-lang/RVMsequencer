@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+
+export const dynamic = "force-dynamic";
 import { postgresEnabled, getPrisma } from "@/lib/db/prisma";
 import { redisEnabled, getRedis } from "@/lib/db/redis";
 import { isAlloSyncConfigured, isAlloSyncEnabled } from "@/lib/allo/client";

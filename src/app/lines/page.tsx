@@ -182,6 +182,7 @@ export default function LinesPage() {
       actions={
         <button
           type="button"
+          id="connect-number-btn"
           className="sl-btn sl-btn-primary"
           onClick={() => setConnectOpen((v) => !v)}
         >
@@ -189,6 +190,126 @@ export default function LinesPage() {
         </button>
       }
     >
+      {connectOpen ? (
+        <div
+          id="connect-number-panel"
+          className="mb-4 rounded-xl border border-[var(--line)] bg-white p-5"
+        >
+          <h2 className="font-[family-name:var(--font-display)] text-lg">
+            Add a Twilio number
+          </h2>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            Search Twilio inventory and buy, or import a DID already on the
+            account. New lines start WARMING (20/day). Buying charges Twilio.
+          </p>
+          <div className="mt-4 flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="text-[var(--muted)]">Area code</span>
+              <input
+                id="connect-area-code"
+                className="sl-input font-[family-name:var(--font-mono)] w-28"
+                value={areaCode}
+                onChange={(e) => setAreaCode(e.target.value)}
+                placeholder="214"
+                inputMode="numeric"
+              />
+            </label>
+            <button
+              type="button"
+              id="connect-search-buy"
+              className="sl-btn sl-btn-ghost"
+              disabled={searchBusy}
+              onClick={() => void searchNumbers("available")}
+            >
+              {searchBusy && source === "available" ? "Searching…" : "Search to buy"}
+            </button>
+            <button
+              type="button"
+              id="connect-search-account"
+              className="sl-btn sl-btn-ghost"
+              disabled={searchBusy}
+              onClick={() => void searchNumbers("account")}
+            >
+              Show account numbers
+            </button>
+            <button
+              type="button"
+              id="connect-buy-first"
+              className="sl-btn sl-btn-primary"
+              disabled={!areaCode.trim() || Boolean(buyBusy)}
+              onClick={() => void provision({ areaCode: areaCode.trim() })}
+            >
+              Buy first in {areaCode.trim() || "NPA"}
+            </button>
+          </div>
+          <div className="mt-4 flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="text-[var(--muted)]">Existing E.164</span>
+              <input
+                id="connect-existing-e164"
+                className="sl-input font-[family-name:var(--font-mono)] min-w-[200px]"
+                value={existingE164}
+                onChange={(e) => setExistingE164(e.target.value)}
+                placeholder="+12145550123"
+              />
+            </label>
+            <button
+              type="button"
+              id="connect-add-existing"
+              className="sl-btn sl-btn-primary"
+              disabled={!existingE164.trim() || Boolean(buyBusy)}
+              onClick={() => void provision({ e164: existingE164.trim() })}
+            >
+              Add this number
+            </button>
+          </div>
+          {notice ? (
+            <p id="connect-notice" className="mt-3 text-sm text-[var(--muted)]">
+              {notice}
+            </p>
+          ) : null}
+          {results.length ? (
+            <div className="sl-table-wrap mt-4 overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-[var(--bg)] text-[11px] uppercase tracking-wider text-[var(--muted)]">
+                  <tr>
+                    <th className="px-4 py-3 font-medium">Number</th>
+                    <th className="px-4 py-3 font-medium">Place</th>
+                    <th className="px-4 py-3 font-medium">Pool</th>
+                    <th className="px-4 py-3 font-medium"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.map((row) => (
+                    <tr key={row.e164} className="border-t border-[var(--line)]">
+                      <td className="px-4 py-3 font-[family-name:var(--font-mono)]">
+                        {row.e164}
+                      </td>
+                      <td className="px-4 py-3 text-[var(--muted)]">
+                        {[row.locality, row.region].filter(Boolean).join(", ") || "—"}
+                      </td>
+                      <td className="px-4 py-3 text-[var(--muted)]">
+                        {row.inPool ? "In pool" : "New"}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          className="sl-btn sl-btn-primary"
+                          disabled={Boolean(row.inPool) || Boolean(buyBusy)}
+                          onClick={() => void provision({ e164: row.e164 })}
+                        >
+                          {buyBusy === row.e164 ? "Adding…" : "Add"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="sl-tabs">
         {(
           [
@@ -230,115 +351,6 @@ export default function LinesPage() {
             <code>GET /api/reputation/check?refresh=1&amp;e164=+1…</code>{" "}
             (CRON_SECRET).
           </p>
-        </div>
-      ) : null}
-
-      {connectOpen ? (
-        <div className="mb-4 rounded-xl border border-[var(--line)] bg-white p-5">
-          <h2 className="font-[family-name:var(--font-display)] text-lg">
-            Add a Twilio number
-          </h2>
-          <p className="mt-1 text-sm text-[var(--muted)]">
-            Search Twilio inventory and buy, or import a DID already on the
-            account. New lines start WARMING (20/day). Buying charges Twilio.
-          </p>
-          <div className="mt-4 flex flex-wrap items-end gap-3">
-            <label className="flex flex-col gap-1.5 text-sm">
-              <span className="text-[var(--muted)]">Area code</span>
-              <input
-                className="sl-input font-[family-name:var(--font-mono)] w-28"
-                value={areaCode}
-                onChange={(e) => setAreaCode(e.target.value)}
-                placeholder="214"
-                inputMode="numeric"
-              />
-            </label>
-            <button
-              type="button"
-              className="sl-btn sl-btn-ghost"
-              disabled={searchBusy}
-              onClick={() => void searchNumbers("available")}
-            >
-              {searchBusy && source === "available" ? "Searching…" : "Search to buy"}
-            </button>
-            <button
-              type="button"
-              className="sl-btn sl-btn-ghost"
-              disabled={searchBusy}
-              onClick={() => void searchNumbers("account")}
-            >
-              Show account numbers
-            </button>
-            <button
-              type="button"
-              className="sl-btn sl-btn-primary"
-              disabled={!areaCode.trim() || Boolean(buyBusy)}
-              onClick={() => void provision({ areaCode: areaCode.trim() })}
-            >
-              Buy first in {areaCode.trim() || "NPA"}
-            </button>
-          </div>
-          <div className="mt-4 flex flex-wrap items-end gap-3">
-            <label className="flex flex-col gap-1.5 text-sm">
-              <span className="text-[var(--muted)]">Existing E.164</span>
-              <input
-                className="sl-input font-[family-name:var(--font-mono)] min-w-[200px]"
-                value={existingE164}
-                onChange={(e) => setExistingE164(e.target.value)}
-                placeholder="+12145550123"
-              />
-            </label>
-            <button
-              type="button"
-              className="sl-btn sl-btn-primary"
-              disabled={!existingE164.trim() || Boolean(buyBusy)}
-              onClick={() => void provision({ e164: existingE164.trim() })}
-            >
-              Add this number
-            </button>
-          </div>
-          {notice ? (
-            <p className="mt-3 text-sm text-[var(--muted)]">{notice}</p>
-          ) : null}
-          {results.length ? (
-            <div className="sl-table-wrap mt-4 overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-[var(--bg)] text-[11px] uppercase tracking-wider text-[var(--muted)]">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">Number</th>
-                    <th className="px-4 py-3 font-medium">Place</th>
-                    <th className="px-4 py-3 font-medium">Pool</th>
-                    <th className="px-4 py-3 font-medium"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {results.map((row) => (
-                    <tr key={row.e164} className="border-t border-[var(--line)]">
-                      <td className="px-4 py-3 font-[family-name:var(--font-mono)]">
-                        {row.e164}
-                      </td>
-                      <td className="px-4 py-3 text-[var(--muted)]">
-                        {[row.locality, row.region].filter(Boolean).join(", ") || "—"}
-                      </td>
-                      <td className="px-4 py-3 text-[var(--muted)]">
-                        {row.inPool ? "In pool" : "New"}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          type="button"
-                          className="sl-btn sl-btn-primary"
-                          disabled={Boolean(row.inPool) || Boolean(buyBusy)}
-                          onClick={() => void provision({ e164: row.e164 })}
-                        >
-                          {buyBusy === row.e164 ? "Adding…" : "Add"}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
         </div>
       ) : null}
 

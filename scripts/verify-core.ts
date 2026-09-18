@@ -1685,6 +1685,14 @@ async function main() {
     assert.equal(noCreds.ok, false);
     if (!noCreds.ok) assert.equal(noCreds.error, "TWILIO_NOT_CONFIGURED");
 
+    process.env.TWILIO_ACCOUNT_SID = "SKnotanaccount";
+    process.env.TWILIO_AUTH_TOKEN = "token_verify";
+    const skAsAccount = await searchAvailableTwilioNumbers({ areaCode: "214" });
+    assert.equal(skAsAccount.ok, false);
+    if (!skAsAccount.ok) {
+      assert.equal(skAsAccount.error, "TWILIO_NOT_CONFIGURED");
+    }
+
     process.env.TWILIO_ACCOUNT_SID = "ACverify";
     process.env.TWILIO_AUTH_TOKEN = "token_verify";
 

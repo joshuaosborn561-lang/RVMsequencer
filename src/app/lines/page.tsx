@@ -54,13 +54,35 @@ function toRow(line: LineRecord): LineRow {
   };
 }
 
+type NumberQuote = {
+  label: string;
+  monthlyUsd: number;
+  currency: string;
+  note?: string;
+};
+
 type AvailableRow = {
   e164: string;
   locality?: string;
   region?: string;
   inPool?: boolean;
   sid?: string;
+  quote?: NumberQuote;
 };
+
+function confirmBuyMessage(target: string, quote?: NumberQuote | null): string {
+  if (!quote) {
+    return `Cannot load Twilio's price for ${target}. Not buying until the monthly rent is shown.`;
+  }
+  return [
+    `Buy ${target} on Twilio?`,
+    "",
+    `Cost: ${quote.label} local number rent.`,
+    quote.note ?? "Voice and SMS usage is billed separately.",
+    "",
+    "Continue?",
+  ].join("\n");
+}
 
 export default function LinesPage() {
   const [sub, setSub] = useState<SubTab>("accounts");
@@ -73,6 +95,7 @@ export default function LinesPage() {
   const [searchBusy, setSearchBusy] = useState(false);
   const [buyBusy, setBuyBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [quote, setQuote] = useState<NumberQuote | null>(null);
 
   async function reloadLines() {
     try {
@@ -104,6 +127,24 @@ export default function LinesPage() {
     })();
   }, []);
 
+  useEffect(() => {
+    if (connectOpen) void loadQuote();
+  }, [connectOpen]);
+
+  async function loadQuote() {
+    try {
+      const res = await fetch("/api/lines/quote?country=US");
+      const data = (await res.json()) as { quote?: NumberQuote };
+      if (res.ok && data.quote) {
+        setQuote(data.quote);
+        return data.quote;
+      }
+    } catch {
+      /* quoted at confirm time */
+    }
+    return null;
+  }
+
   async function searchNumbers(nextSource = source) {
     setSource(nextSource);
     setSearchBusy(true);
@@ -114,6 +155,7 @@ export default function LinesPage() {
       const res = await fetch(`/api/lines/available?${qs}`);
       const data = (await res.json()) as {
         numbers?: AvailableRow[];
+        quote?: NumberQuote;
         error?: string;
         hint?: string;
       };
@@ -122,6 +164,7 @@ export default function LinesPage() {
         setNotice(data.hint ? `${data.error}: ${data.hint}` : data.error ?? "Search failed");
         return;
       }
+      if (data.quote) setQuote(data.quote);
       setResults(data.numbers ?? []);
       if (!(data.numbers ?? []).length) setNotice("No numbers matched.");
     } catch {
@@ -131,17 +174,26 @@ export default function LinesPage() {
     }
   }
 
-  async function provision(opts: { e164?: string; areaCode?: string }) {
+  async function provision(opts: {
+    e164?: string;
+    areaCode?: string;
+    alreadyOwned?: boolean;
+  }) {
     const label = opts.e164 ?? opts.areaCode ?? "number";
-    if (opts.e164) {
+    const liveQuote = quote ?? (await loadQuote());
+    if (opts.alreadyOwned) {
       const ok = window.confirm(
-        `Add ${opts.e164} from Twilio to this pool? If it is not already on the account, Twilio will be charged for a new DID.`,
+        `Add ${label} to this pool? It is already on the Twilio account, so there is no new number purchase.`,
       );
       if (!ok) return;
-    } else if (opts.areaCode) {
-      const ok = window.confirm(
-        `Buy the first available Twilio number in ${opts.areaCode}? This charges the Twilio account.`,
-      );
+    } else {
+      if (!liveQuote) {
+        setNotice(
+          "Twilio price is unavailable. Not buying until the monthly rent can be shown.",
+        );
+        return;
+      }
+      const ok = window.confirm(confirmBuyMessage(label, liveQuote));
       if (!ok) return;
     }
     setBuyBusy(label);
@@ -200,7 +252,9 @@ export default function LinesPage() {
           </h2>
           <p className="mt-1 text-sm text-[var(--muted)]">
             Search Twilio inventory and buy, or import a DID already on the
-            account. New lines start WARMING (20/day). Buying charges Twilio.
+            account. New lines start WARMING (20/day). Buying shows the monthly
+            rent before you confirm.
+            {quote ? ` Current local DID: ${quote.label}.` : ""}
           </p>
           <div className="mt-4 flex flex-wrap items-end gap-3">
             <label className="flex flex-col gap-1.5 text-sm">
@@ -275,6 +329,7 @@ export default function LinesPage() {
                   <tr>
                     <th className="px-4 py-3 font-medium">Number</th>
                     <th className="px-4 py-3 font-medium">Place</th>
+                    <th className="px-4 py-3 font-medium">Cost</th>
                     <th className="px-4 py-3 font-medium">Pool</th>
                     <th className="px-4 py-3 font-medium"></th>
                   </tr>
@@ -289,6 +344,11 @@ export default function LinesPage() {
                         {[row.locality, row.region].filter(Boolean).join(", ") || "—"}
                       </td>
                       <td className="px-4 py-3 text-[var(--muted)]">
+                        {row.inPool
+                          ? "Already owned"
+                          : row.quote?.label ?? quote?.label ?? "—"}
+                      </td>
+                      <td className="px-4 py-3 text-[var(--muted)]">
                         {row.inPool ? "In pool" : "New"}
                       </td>
                       <td className="px-4 py-3 text-right">
@@ -296,7 +356,12 @@ export default function LinesPage() {
                           type="button"
                           className="sl-btn sl-btn-primary"
                           disabled={Boolean(row.inPool) || Boolean(buyBusy)}
-                          onClick={() => void provision({ e164: row.e164 })}
+                          onClick={() =>
+                            void provision({
+                              e164: row.e164,
+                              alreadyOwned: Boolean(row.inPool || row.sid),
+                            })
+                          }
                         >
                           {buyBusy === row.e164 ? "Adding…" : "Add"}
                         </button>

@@ -12,6 +12,16 @@ export type TwilioNumberCapabilities = {
   mms: boolean;
 };
 
+export type TwilioNumberQuote = {
+  country: string;
+  numberType: "local";
+  monthlyUsd: number;
+  currency: string;
+  interval: "month";
+  label: string;
+  note: string;
+};
+
 export type TwilioAvailableNumber = {
   e164: string;
   friendlyName?: string;
@@ -20,6 +30,7 @@ export type TwilioAvailableNumber = {
   postalCode?: string;
   isoCountry?: string;
   capabilities: TwilioNumberCapabilities;
+  quote?: TwilioNumberQuote;
 };
 
 export type TwilioOwnedNumber = TwilioAvailableNumber & { sid: string };
@@ -48,6 +59,78 @@ type TwilioIncomingRaw = {
 };
 
 const ALLOWED_COUNTRIES = new Set(["US", "CA"]);
+const quoteCache = new Map<string, { quote: TwilioNumberQuote; exp: number }>();
+const QUOTE_TTL_MS = 15 * 60 * 1000;
+
+export function formatTwilioQuoteLabel(
+  monthlyUsd: number,
+  currency = "USD",
+): string {
+  return `$${monthlyUsd.toFixed(2)}/month (${currency})`;
+}
+
+export function mapTwilioPhoneNumberPrices(raw: {
+  iso_country?: string;
+  price_unit?: string;
+  phone_number_prices?: Array<{
+    number_type?: string;
+    current_price?: string | number;
+    base_price?: string | number;
+  }>;
+}): TwilioNumberQuote | null {
+  const row = (raw.phone_number_prices ?? []).find(
+    (p) => (p.number_type ?? "").toLowerCase().replace(/[_-]/g, " ") === "local",
+  );
+  const monthly = Number(row?.current_price ?? row?.base_price);
+  if (!Number.isFinite(monthly) || monthly < 0) return null;
+  const currency = (raw.price_unit ?? "USD").toUpperCase();
+  const country = (raw.iso_country ?? "US").toUpperCase();
+  return {
+    country,
+    numberType: "local",
+    monthlyUsd: monthly,
+    currency,
+    interval: "month",
+    label: formatTwilioQuoteLabel(monthly, currency),
+    note: "Monthly number rent. Voice and SMS usage is billed separately.",
+  };
+}
+
+export async function quoteTwilioLocalNumber(
+  country = "US",
+  fetchImpl: FetchLike = fetch,
+): Promise<
+  | { ok: true; quote: TwilioNumberQuote }
+  | { ok: false; error: string; hint?: string }
+> {
+  const iso = normalizeTwilioCountry(country);
+  if (!iso) return { ok: false, error: "unsupported_country" };
+  const creds = twilioCredentials();
+  if (!creds.ok) {
+    return {
+      ok: false,
+      error: creds.error,
+      hint: "Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN",
+    };
+  }
+  const cached = quoteCache.get(iso);
+  if (cached && cached.exp > Date.now()) return { ok: true, quote: cached.quote };
+
+  const res = await fetchImpl(
+    `https://pricing.twilio.com/v1/PhoneNumbers/Countries/${iso}`,
+    { headers: { Authorization: creds.authHeader } },
+  );
+  const json = (await res.json()) as Parameters<typeof mapTwilioPhoneNumberPrices>[0] & {
+    message?: string;
+  };
+  if (!res.ok) {
+    return { ok: false, error: json.message || `HTTP_${res.status}` };
+  }
+  const quote = mapTwilioPhoneNumberPrices(json);
+  if (!quote) return { ok: false, error: "price_unavailable" };
+  quoteCache.set(iso, { quote, exp: Date.now() + QUOTE_TTL_MS });
+  return { ok: true, quote };
+}
 
 export function normalizeTwilioCountry(raw?: string): string | null {
   const country = (raw ?? "US").trim().toUpperCase();
@@ -100,7 +183,7 @@ export async function searchAvailableTwilioNumbers(
   },
   fetchImpl: FetchLike = fetch,
 ): Promise<
-  | { ok: true; numbers: TwilioAvailableNumber[] }
+  | { ok: true; numbers: TwilioAvailableNumber[]; quote?: TwilioNumberQuote }
   | { ok: false; error: string; hint?: string }
 > {
   const creds = twilioCredentials();
@@ -128,15 +211,22 @@ export async function searchAvailableTwilioNumbers(
   if (input.locality?.trim()) qs.set("InLocality", input.locality.trim());
   if (input.region?.trim()) qs.set("InRegion", input.region.trim());
 
-  const res = await fetchImpl(
-    `https://api.twilio.com/2010-04-01/Accounts/${creds.accountSid}/AvailablePhoneNumbers/${country}/Local.json?${qs}`,
-    { headers: { Authorization: creds.authHeader } },
-  );
+  const [res, priced] = await Promise.all([
+    fetchImpl(
+      `https://api.twilio.com/2010-04-01/Accounts/${creds.accountSid}/AvailablePhoneNumbers/${country}/Local.json?${qs}`,
+      { headers: { Authorization: creds.authHeader } },
+    ),
+    quoteTwilioLocalNumber(country, fetchImpl),
+  ]);
   const json = (await res.json()) as TwilioAvailableRaw;
   if (!res.ok) {
     return { ok: false, error: json.message || `HTTP_${res.status}` };
   }
-  return { ok: true, numbers: mapAvailableTwilioNumbers(json) };
+  const quote = priced.ok ? priced.quote : undefined;
+  const numbers = mapAvailableTwilioNumbers(json).map((n) =>
+    quote ? { ...n, quote } : n,
+  );
+  return { ok: true, numbers, quote };
 }
 
 export async function listOwnedTwilioNumbers(

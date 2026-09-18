@@ -1647,8 +1647,11 @@ async function main() {
 
     const {
       mapAvailableTwilioNumbers,
+      mapTwilioPhoneNumberPrices,
+      formatTwilioQuoteLabel,
       normalizeTwilioCountry,
       searchAvailableTwilioNumbers,
+      quoteTwilioLocalNumber,
       provisionTwilioNumber,
     } = await import("../src/lib/twilio/inventory");
     const { ensureLine, listLines } = await import("../src/lib/store/db");
@@ -1656,6 +1659,19 @@ async function main() {
     assert.equal(normalizeTwilioCountry("us"), "US");
     assert.equal(normalizeTwilioCountry("CA"), "CA");
     assert.equal(normalizeTwilioCountry("GB"), null);
+    assert.equal(formatTwilioQuoteLabel(1.15, "USD"), "$1.15/month (USD)");
+    const mappedQuote = mapTwilioPhoneNumberPrices({
+      iso_country: "US",
+      price_unit: "USD",
+      phone_number_prices: [
+        { number_type: "toll free", current_price: "2.15" },
+        { number_type: "local", current_price: "1.15", base_price: "1.00" },
+      ],
+    });
+    assert.ok(mappedQuote);
+    assert.equal(mappedQuote?.monthlyUsd, 1.15);
+    assert.equal(mappedQuote?.label, "$1.15/month (USD)");
+    assert.equal(mapTwilioPhoneNumberPrices({ phone_number_prices: [] }), null);
     assert.deepEqual(
       mapAvailableTwilioNumbers({
         available_phone_numbers: [
@@ -1701,6 +1717,17 @@ async function main() {
       const u = String(url);
       const method = (init?.method ?? "GET").toUpperCase();
       calls.push(`${method} ${u}`);
+      if (u.includes("pricing.twilio.com")) {
+        return new Response(
+          JSON.stringify({
+            iso_country: "US",
+            price_unit: "USD",
+            phone_number_prices: [
+              { number_type: "local", current_price: "1.15" },
+            ],
+          }),
+        );
+      }
       if (u.includes("AvailablePhoneNumbers")) {
         return new Response(
           JSON.stringify({
@@ -1741,7 +1768,12 @@ async function main() {
     if (searched.ok) {
       assert.equal(searched.numbers[0]?.e164, "+12145550999");
       assert.equal(searched.numbers[0]?.locality, "Dallas");
+      assert.equal(searched.quote?.label, "$1.15/month (USD)");
+      assert.equal(searched.numbers[0]?.quote?.monthlyUsd, 1.15);
     }
+    const quoted = await quoteTwilioLocalNumber("US", fetchImpl);
+    assert.equal(quoted.ok, true);
+    if (quoted.ok) assert.equal(quoted.quote.monthlyUsd, 1.15);
 
     const already = await ensureLine("+14155551999");
     const again = await provisionTwilioNumber(

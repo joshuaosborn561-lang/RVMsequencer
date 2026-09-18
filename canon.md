@@ -128,7 +128,7 @@ Default min gap between sends on the **same** DID: **600 seconds**.
 Every **5 minutes**, `POST /api/sequencer/tick`:
 
 1. **Daily reputation** (~once / 20h unless forced) — may quarantine / degrade DIDs  
-2. **Allo suppression sync** (if key set; skip if last run &lt; ~55m) — never blocks drain on failure  
+2. **Allo suppression sync** (if key set; skip if last run &lt; ~55m) then **cross-channel fan-out** (central DB / Smartlead / Allo notes) — never blocks drain on failure  
 3. **Reconcile** — surface ACTIVE work; stale claims reclaimed inside claim  
 4. **Drain** — warmups → seeds → claim/send  
 5. **Receipts** — poll Slybroadcast `campaign_result` for recent accepted sends still `Pending` / `queued` (settle ~3m so the gateway can settle; batch cap 40). Maps **OK → delivered**, **Failure → failed** via `reconcileProviderDelivery` (and patches `rvm_drops.dial_status`). Tick JSON includes `{ refreshed, ok, failed, stillPending }` under `receipts`. **Does not auto-pause.** May set `receipts.flag = RECEIPT_HEALTH` (and an audit event) if Failure rate is high (≥30% with ≥10 settled) or many rows stay Pending &gt;30m.  
@@ -323,6 +323,30 @@ Runs on tick when `ALLO_API_KEY` set; first run backfills; same `suppressLeadByP
 Scope: `ALLO_SUPPRESSION_SCOPE` = `global` (default) | `salesglider`.  
 Ops: create Allo tag **`do_not_call`**.
 
+### Cross-channel fan-out (after a decision exists)
+
+The classifier is not rewritten. A decision already on the local suppression list (Allo, SMS STOP, inbox DNC, Smartlead unsubscribe) is copied to every destination. Adding a channel is adding one destination.
+
+| Outcome | Permanent? | RVM | Central `suppression` | Smartlead | Allo |
+|---|---|---|---|---|---|
+| `do_not_call` | YES | suppress + DNC | phone + email + domain, recording/rep/call | block email; if no email, block company domain | tag `do_not_call` + internal note |
+| `not_interested` | no | suppress | same row, distinguishable | block email only | internal note |
+| `interested` (incl. booked / demo / follow_up) | no | suppress (stop cold VM) | same | remove from campaign sequences, **no** block list | internal note |
+| `conversation` | no | suppress | same | remove from campaign sequences, **no** block list | internal note |
+
+**Rules:**
+- Hourly on the same tick (~55m gate). First successful run is full history, then incremental.
+- Re-running the same window does not duplicate notes, block-list rows, or central records.
+- One destination down → others still apply; the failed one stays `pending`/`failed` and is retried. Never drop silently.
+- Writes are internal only. Never message the contact.
+- Logs and the status view are counts only — no phones or emails.
+- Smartlead unsubscribe (`POST /api/webhooks/smartlead` or block-list harvest) and local RVM opt-outs travel the same path.
+- Undetermined Allo calls are left alone (existing classifier).
+
+Status: `GET /api/suppression/sync` (also folded into `suppression_sync_status` and `/api/health`). Counts by outcome and destination, plus retrying.
+
+**Config (not code):** `ALLO_API_KEY` turns classification on. `SUPABASE_*` and `SMARTLEAD_API_KEY` turn those destinations on. Create the Allo `do_not_call` tag once in workspace settings.
+
 ### Per-lead operator suppress (narrow cleanup)
 
 `POST /api/campaigns/{id}/leads/{leadId}/suppress` — **CRON_SECRET** (`x-cron-secret` or Bearer). Body `{ "reason": "LANE_MISMATCH" }` (reason optional; default `LANE_MISMATCH`).
@@ -374,6 +398,8 @@ Use this when a **paused** list has confirmed mismatches (wrong trade/lane) and 
 - [ ] `DNC_PROJECT_API_TOKEN` (else internal-only scrub)
 - [ ] `CALL_FORWARD_TO_E164` → Allo; DND **off**; dial timeout ≥90; lead caller ID preserved
 - [ ] `ALLO_API_KEY` + Allo tag `do_not_call`
+- [ ] `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` (campaignintelligence) + `SMARTLEAD_API_KEY` for fan-out
+- [ ] Smartlead webhook `LEAD_UNSUBSCRIBED` → `POST /api/webhooks/smartlead`
 - [ ] Seeds upserted if canary verification wanted
 - [ ] FCR on DIDs before enabling `requireFcrRegistration`
 - [ ] Twilio DIDs: buy/import from Lines (`+ Connect number`) or MCP `lines_search` → confirm → `lines_purchase`. New rows start WARMING at 20/day. Do not buy without explicit confirm.
@@ -395,7 +421,7 @@ Use this when a **paused** list has confirmed mismatches (wrong trade/lane) and 
 ### Ongoing (healthy)
 - [ ] Tick every 5m; `lastDrainAt` moving
 - [ ] Receipts / webhooks unlocking multi-step (`dial_status` OK; Pending is not confirmed)
-- [ ] `suppression_sync_status` OK if Allo on
+- [ ] `suppression_sync_status` / `suppression_fanout_status` OK if Allo on; destination failures retrying, not dropped
 - [ ] No surprise FLAGGED / quarantined pool (external CallTracer/Hiya only; unused DIDs not MIXED_HIGH)
 - [ ] Callbacks → Allo/Inbox; STOP suppresses
 - [ ] Seeds first when configured

@@ -59,6 +59,7 @@ Also: `POST /api/scrub`, `GET /api/timezone?phone=`, MCP tools for all of the ab
 
 ```
 POST /api/sequencer/tick
+  → Allo classify (hourly) + fan-out suppressions to central DB / Smartlead / Allo
   → reconcile stale SENDING + campaign leases
   → claim due leads (attempt ledger + org/ramp caps)
   → global suppression + DNC scrub

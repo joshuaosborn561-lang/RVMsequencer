@@ -32,6 +32,7 @@ export const ignoreRoutes: string[] = [
   "src/app/api/voice/render/route.ts", // TTS removed
   "src/app/api/mcp/route.ts", // remote MCP endpoint itself
   "src/app/api/supabase/refresh-outcomes/route.ts", // cron helper; covered by sequencer_drain ops
+  "src/app/api/webhooks/smartlead/route.ts", // Smartlead unsubscribe ingest
 ];
 
 export const mcpTools: McpToolDef[] = [
@@ -697,7 +698,7 @@ export const mcpTools: McpToolDef[] = [
   {
     name: "suppression_sync_status",
     description:
-      "Allo → RVM suppression sync status: last run, calls scanned, per-rule counts (allo_dnc / allo_tag / allo_conversation), undetermined count, cursor. Never returns phone numbers.",
+      "Allo classification + cross-channel fan-out status. Last-run outcome counts, per-destination ok/failed/pending, retries. Never returns phone numbers or emails.",
     method: "GET",
     path: "/api/allo/sync",
     auth: "cron",
@@ -707,7 +708,7 @@ export const mcpTools: McpToolDef[] = [
   {
     name: "suppression_sync_run",
     description:
-      "Run Allo → RVM suppression sync now (hourly or full backfill). Requires cron secret. Prefer backfill once after deploy.",
+      "Run Allo classification now (hourly or full backfill). Requires cron secret. Prefer backfill once after ALLO_API_KEY is set. Fan-out to Smartlead / Allo / central DB runs on the same tick and via suppression_fanout_run.",
     method: "POST",
     path: "/api/allo/sync",
     body: true,
@@ -726,6 +727,43 @@ export const mcpTools: McpToolDef[] = [
       },
     },
     covers: ["src/app/api/allo/sync/route.ts"],
+  },
+  {
+    name: "suppression_fanout_status",
+    description:
+      "One place for last-run suppression counts: outcomes (do_not_call / not_interested / interested / conversation) and per-destination ok/failed/pending/retrying. No personal data.",
+    method: "GET",
+    path: "/api/suppression/sync",
+    auth: "cron",
+    inputSchema: { type: "object", properties: {} },
+    covers: ["src/app/api/suppression/sync/route.ts"],
+  },
+  {
+    name: "suppression_fanout_run",
+    description:
+      "Harvest new suppressions and push them to RVM, central Supabase, Smartlead, and Allo. Safe to re-run. Requires cron secret. Set allo=false to skip Allo classification.",
+    method: "POST",
+    path: "/api/suppression/sync",
+    body: true,
+    auth: "cron",
+    inputSchema: {
+      type: "object",
+      properties: {
+        backfill: {
+          type: "boolean",
+          description: "Treat as first full-history pass",
+        },
+        force: {
+          type: "boolean",
+          description: "Bypass hourly gate",
+        },
+        allo: {
+          type: "boolean",
+          description: "Also run Allo classification first (default true)",
+        },
+      },
+    },
+    covers: ["src/app/api/suppression/sync/route.ts"],
   },
   {
     name: "scrub_phones",
@@ -758,7 +796,7 @@ export const mcpTools: McpToolDef[] = [
   {
     name: "sequencer_drain",
     description:
-      "Run sequencer tick (reconcile + drain ACTIVE campaigns, then poll Slybroadcast campaign_result for pending receipts). Also runs the daily from-number spam/blacklist check if due. Requires cron secret.",
+      "Run sequencer tick (reconcile + drain ACTIVE campaigns, then poll Slybroadcast campaign_result for pending receipts). Also runs daily reputation check and hourly Allo classify + cross-channel suppression fan-out if due. Requires cron secret.",
     method: "POST",
     path: "/api/sequencer/tick",
     body: true,

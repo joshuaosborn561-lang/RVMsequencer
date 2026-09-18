@@ -338,6 +338,14 @@ export async function listLeads(campaignId: string) {
   return (await readStoreUnlocked()).leads.filter((l) => l.campaignId === campaignId);
 }
 
+export async function listAllLeads(): Promise<LeadRecord[]> {
+  return (await readStoreUnlocked()).leads.map(normalizeLead);
+}
+
+export async function listSuppressions(): Promise<SuppressionRecord[]> {
+  return [...(await readStoreUnlocked()).suppressions];
+}
+
 /** Lead must belong to the campaign — mismatch is not found. */
 export async function getLead(
   campaignId: string,

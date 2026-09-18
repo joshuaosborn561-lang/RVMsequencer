@@ -2,7 +2,7 @@
  * Allo → RVM suppression sync (rules A / B / C).
  */
 
-import { toE164 } from "@/lib/phone";
+import { normalizeContactPhone } from "@/lib/phone";
 import { getSuppression, suppressLeadByPhone } from "@/lib/store/db";
 import {
   assertAlloSyncReady,
@@ -22,6 +22,7 @@ import {
 } from "./rules";
 import { phoneInScope } from "./scope";
 import { attachAlloSuppressionMeta } from "./suppress-meta";
+import { getSuppressionFanoutStatus } from "@/lib/suppression-fanout/engine";
 import {
   getAlloSyncState,
   saveAlloSyncState,
@@ -40,13 +41,7 @@ function ymd(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Spec: 10-digit US normalize then E.164. */
-export function normalizeContactPhone(raw: string | undefined): string | null {
-  if (!raw) return null;
-  const ten = raw.replace(/\D/g, "").match(/(\d{10})$/)?.[1];
-  if (!ten) return null;
-  return toE164(ten);
-}
+export { normalizeContactPhone };
 
 function contactRaw(item: AlloConversationItem): string | undefined {
   if (item.contact_number) return item.contact_number;
@@ -398,5 +393,6 @@ export async function getAlloSuppressionSyncStatus() {
     skippedAlready: lr?.skippedAlready ?? 0,
     errors: lr?.errors ?? 0,
     processedCallCount: state.processedCallIds.length,
+    fanout: await getSuppressionFanoutStatus(),
   };
 }

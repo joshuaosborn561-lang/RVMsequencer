@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
+
+export const dynamic = "force-dynamic";
 import { postgresEnabled, getPrisma } from "@/lib/db/prisma";
 import { redisEnabled, getRedis } from "@/lib/db/redis";
 import { isAlloSyncConfigured, isAlloSyncEnabled } from "@/lib/allo/client";
+import { getSuppressionFanoutStatus } from "@/lib/suppression-fanout/engine";
+import { isSmartleadConfigured } from "@/lib/smartlead/client";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 export async function GET() {
   let postgres: "up" | "down" | "disabled" = "disabled";
@@ -34,6 +39,8 @@ export async function GET() {
       ? "ALLO_SUPPRESSION_SYNC enabled but ALLO_API_KEY is missing"
       : null;
 
+  const fanout = await getSuppressionFanoutStatus().catch(() => null);
+
   return NextResponse.json({
     ok: !alloSyncError,
     app: "RVM Drop",
@@ -46,5 +53,21 @@ export async function GET() {
       configured: alloConfigured,
       error: alloSyncError,
     },
+    suppressionFanout: fanout
+      ? {
+          lastRunAt: fanout.lastRunAt,
+          outcomes: fanout.outcomes,
+          destinations: fanout.destinations,
+          retrying: fanout.retrying,
+          errors: fanout.errors,
+          configured: {
+            rvm: true,
+            central: isSupabaseConfigured(),
+            smartlead: isSmartleadConfigured(),
+            allo: alloConfigured,
+          },
+          alloDoNotCallTagPresent: fanout.alloDoNotCallTagPresent,
+        }
+      : null,
   });
 }

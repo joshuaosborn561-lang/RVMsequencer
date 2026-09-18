@@ -39,6 +39,7 @@ export async function GET(req: Request) {
   const pool = new Set((await listLines()).map((l) => l.e164));
   return NextResponse.json({
     source,
+    quote: "quote" in result ? result.quote : undefined,
     numbers: result.numbers.map((n) => ({
       ...n,
       inPool: pool.has(n.e164),

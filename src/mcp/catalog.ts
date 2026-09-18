@@ -518,7 +518,7 @@ export const mcpTools: McpToolDef[] = [
   {
     name: "lines_search",
     description:
-      "Search Twilio for purchasable local DIDs (source=available, default) or list numbers already on the Twilio account (source=account). Does not buy. Filter by areaCode / locality / region. Confirm with the user before lines_purchase.",
+      "Search Twilio for purchasable local DIDs (source=available, default) or list numbers already on the Twilio account (source=account). Does not buy. Returns quote.label (monthly local DID rent). Filter by areaCode / locality / region. Read the price to the user and get an explicit yes before lines_purchase.",
     method: "GET",
     path: "/api/lines/available",
     inputSchema: {
@@ -540,9 +540,23 @@ export const mcpTools: McpToolDef[] = [
     covers: ["src/app/api/lines/available/route.ts"],
   },
   {
+    name: "lines_quote",
+    description:
+      "Twilio monthly rent for a local DID (does not buy). Call this and tell the user the dollar amount before lines_purchase. Voice/SMS usage is extra.",
+    method: "GET",
+    path: "/api/lines/quote",
+    inputSchema: {
+      type: "object",
+      properties: {
+        country: { type: "string", description: "US (default) or CA" },
+      },
+    },
+    covers: ["src/app/api/lines/quote/route.ts"],
+  },
+  {
     name: "lines_purchase",
     description:
-      "Buy a Twilio DID (charges the Twilio account) or import one already on the account, add it to the line pool, and point Voice/SMS webhooks at this app. Pass e164 from lines_search, or areaCode to buy the first match. ALWAYS confirm with the user first — this spends money.",
+      "Buy a Twilio DID (charges the Twilio account) or import one already on the account, add it to the line pool, and point Voice/SMS webhooks at this app. NEVER call this until the user has heard the monthly price from lines_quote or lines_search.quote.label and said yes.",
     method: "POST",
     path: "/api/lines/purchase",
     body: true,

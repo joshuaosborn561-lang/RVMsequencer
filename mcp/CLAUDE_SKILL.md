@@ -29,7 +29,9 @@ Ask: **“Reuse a saved recording, open a phone recorder link, give me a public 
 
 ### 3) Caller ID lines (Twilio DIDs)
 - Show `lines_list` (e164, dailyCap, sentToday, status).
-- Ask which numbers to use; `lines_ensure` for any new DIDs they provide.
+- To add a number they already know: `lines_ensure` `{ e164 }` (pool only) or `lines_purchase` `{ e164 }` (Twilio buy/import + webhooks).
+- To buy a new local DID: ask NPA (area code). `lines_search` `{ areaCode: "214" }` → show matches → **explicit confirm** → `lines_purchase` `{ e164 }` (charges Twilio). `source: "account"` lists DIDs already on the Twilio account.
+- Never invent or buy a number they did not confirm.
 - Ask **how many voicemails per day per line**; `lines_update` `{ e164|id, dailyCap }`.
 - `campaigns_update` `{ id, lineIds: [...] }` (ids or E.164).
 
@@ -67,7 +69,7 @@ Then `campaigns_update` with `schedule` and confirm the summary.
 Need all of: sendable leads, ≥1 line, audioUrl, sendDays. API returns `launch_blocked` with `blockers`.
 
 ## Do not
-- Invent Twilio numbers not in the pool / provided by the user.
+- Invent Twilio numbers or buy a DID without an explicit “yes” (purchase charges Twilio).
 - Launch without an explicit “yes”.
 - Claim TTS exists (removed) — audio must be a real file/URL.
 - Enable `requireFcrRegistration` until DIDs are actually registered.

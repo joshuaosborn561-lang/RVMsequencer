@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { readJsonFile, writeFileAtomic } from "./atomic-write";
 import {
   CAMPAIGN_LEASE_MS,
   DEFAULT_CAMPAIGN_RAMP,
@@ -105,55 +106,68 @@ function normalizeLead(lead: LeadRecord): LeadRecord {
   };
 }
 
+/**
+ * Returns parsed store JSON, or null only when the file is missing (ENOENT).
+ * A half-written / unparseable file is retried, then copied aside and thrown
+ * — never replaced with a default store.
+ */
+async function readStoreRaw(): Promise<Partial<StoreShape> | null> {
+  return readJsonFile<Partial<StoreShape>>(STORE_PATH, {
+    unparseableCode: "store_unparseable",
+  });
+}
+
+function normalizeStore(parsed: Partial<StoreShape>): StoreShape {
+  const base = defaultStore();
+  // Migrate legacy plaintext api keys
+  const apiKeys = (parsed.apiKeys ?? []).map((k) => {
+    const legacy = k as ApiKeyRecord & { key?: string };
+    if (legacy.keyHash) return legacy;
+    if (legacy.key) {
+      return {
+        ...legacy,
+        keyHash: hashKey(legacy.key),
+        keyPrefix: legacy.key.slice(0, 10),
+        key: undefined,
+      };
+    }
+    return legacy;
+  });
+  return {
+    ...base,
+    ...parsed,
+    settings: { ...base.settings, ...parsed.settings },
+    preferences: { ...base.preferences, ...(parsed.preferences ?? {}) },
+    audioAssets: parsed.audioAssets ?? base.audioAssets,
+    clients: parsed.clients ?? base.clients,
+    apiKeys,
+    campaigns: parsed.campaigns ?? base.campaigns,
+    leads: (parsed.leads ?? base.leads).map(normalizeLead),
+    inbox: parsed.inbox ?? base.inbox,
+    suppressions: parsed.suppressions ?? base.suppressions,
+    attempts: parsed.attempts ?? base.attempts,
+    lines: parsed.lines?.length ? parsed.lines : base.lines,
+    dailySendCounts: parsed.dailySendCounts ?? {},
+    contactDailyCounts: parsed.contactDailyCounts ?? {},
+    auditEvents: parsed.auditEvents ?? [],
+    seedNumbers: parsed.seedNumbers ?? [],
+    clientExclusions: parsed.clientExclusions ?? [],
+  };
+}
+
 async function readStoreUnlocked(): Promise<StoreShape> {
-  try {
-    const raw = await readFile(STORE_PATH, "utf8");
-    const parsed = JSON.parse(raw) as Partial<StoreShape>;
-    const base = defaultStore();
-    // Migrate legacy plaintext api keys
-    const apiKeys = (parsed.apiKeys ?? []).map((k) => {
-      const legacy = k as ApiKeyRecord & { key?: string };
-      if (legacy.keyHash) return legacy;
-      if (legacy.key) {
-        return {
-          ...legacy,
-          keyHash: hashKey(legacy.key),
-          keyPrefix: legacy.key.slice(0, 10),
-          key: undefined,
-        };
-      }
-      return legacy;
-    });
-    return {
-      ...base,
-      ...parsed,
-      settings: { ...base.settings, ...parsed.settings },
-      preferences: { ...base.preferences, ...(parsed.preferences ?? {}) },
-      audioAssets: parsed.audioAssets ?? base.audioAssets,
-      clients: parsed.clients ?? base.clients,
-      apiKeys,
-      campaigns: parsed.campaigns ?? base.campaigns,
-      leads: (parsed.leads ?? base.leads).map(normalizeLead),
-      inbox: parsed.inbox ?? base.inbox,
-      suppressions: parsed.suppressions ?? base.suppressions,
-      attempts: parsed.attempts ?? base.attempts,
-      lines: parsed.lines?.length ? parsed.lines : base.lines,
-      dailySendCounts: parsed.dailySendCounts ?? {},
-      contactDailyCounts: parsed.contactDailyCounts ?? {},
-      auditEvents: parsed.auditEvents ?? [],
-      seedNumbers: parsed.seedNumbers ?? [],
-      clientExclusions: parsed.clientExclusions ?? [],
-    };
-  } catch {
+  const parsed = await readStoreRaw();
+  if (parsed == null) {
     const fresh = defaultStore();
     await writeStoreUnlocked(fresh);
     return fresh;
   }
+  return normalizeStore(parsed);
 }
 
 async function writeStoreUnlocked(store: StoreShape): Promise<void> {
   await mkdir(path.dirname(STORE_PATH), { recursive: true });
-  await writeFile(STORE_PATH, JSON.stringify(store, null, 2));
+  await writeFileAtomic(STORE_PATH, JSON.stringify(store, null, 2));
 }
 
 async function mutateStore<T>(fn: (store: StoreShape) => T | Promise<T>): Promise<T> {

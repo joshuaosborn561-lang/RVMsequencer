@@ -11,7 +11,8 @@ import {
   type ScheduledSendStatus,
 } from "@/lib/store/scheduled-types";
 import { withStoreLock } from "@/lib/store/lock";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readJsonFile, writeFileAtomic } from "@/lib/store/atomic-write";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), ".data");
@@ -20,18 +21,16 @@ const QUEUE_PATH = path.join(DATA_DIR, "scheduled-sends.json");
 type QueueFile = { sends: ScheduledSendRecord[] };
 
 async function readFileQueue(): Promise<QueueFile> {
-  try {
-    const raw = await readFile(QUEUE_PATH, "utf8");
-    const parsed = JSON.parse(raw) as QueueFile;
-    return { sends: parsed.sends ?? [] };
-  } catch {
-    return { sends: [] };
-  }
+  const parsed = await readJsonFile<QueueFile>(QUEUE_PATH, {
+    unparseableCode: "scheduled_unparseable",
+  });
+  if (parsed == null) return { sends: [] };
+  return { sends: parsed.sends ?? [] };
 }
 
 async function writeFileQueue(q: QueueFile): Promise<void> {
   await mkdir(path.dirname(QUEUE_PATH), { recursive: true });
-  await writeFile(QUEUE_PATH, JSON.stringify(q, null, 2));
+  await writeFileAtomic(QUEUE_PATH, JSON.stringify(q, null, 2));
 }
 
 function rowFromPrisma(r: {

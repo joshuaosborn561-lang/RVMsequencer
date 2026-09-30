@@ -1,5 +1,6 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
+import { readJsonFile, writeFileAtomic } from "@/lib/store/atomic-write";
 
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), ".data");
 const STATE_PATH = path.join(DATA_DIR, "allo-sync-state.json");
@@ -45,31 +46,31 @@ export type AlloSyncState = {
 const MAX_PROCESSED = 80_000;
 const MAX_UNDETERMINED = 5_000;
 
+const emptyState = (): AlloSyncState => ({
+  cursorIso: null,
+  processedCallIds: [],
+  voicemailCache: {},
+  undetermined: [],
+});
+
 async function readState(): Promise<AlloSyncState> {
-  try {
-    const raw = await readFile(STATE_PATH, "utf8");
-    const parsed = JSON.parse(raw) as AlloSyncState;
-    return {
-      cursorIso: parsed.cursorIso ?? null,
-      lastRun: parsed.lastRun,
-      processedCallIds: parsed.processedCallIds ?? [],
-      voicemailCache: parsed.voicemailCache ?? {},
-      undetermined: parsed.undetermined ?? [],
-      backfillCompletedAt: parsed.backfillCompletedAt,
-    };
-  } catch {
-    return {
-      cursorIso: null,
-      processedCallIds: [],
-      voicemailCache: {},
-      undetermined: [],
-    };
-  }
+  const parsed = await readJsonFile<AlloSyncState>(STATE_PATH, {
+    unparseableCode: "allo_sync_unparseable",
+  });
+  if (parsed == null) return emptyState();
+  return {
+    cursorIso: parsed.cursorIso ?? null,
+    lastRun: parsed.lastRun,
+    processedCallIds: parsed.processedCallIds ?? [],
+    voicemailCache: parsed.voicemailCache ?? {},
+    undetermined: parsed.undetermined ?? [],
+    backfillCompletedAt: parsed.backfillCompletedAt,
+  };
 }
 
 async function writeState(state: AlloSyncState): Promise<void> {
   await mkdir(DATA_DIR, { recursive: true });
-  await writeFile(STATE_PATH, JSON.stringify(state, null, 0), "utf8");
+  await writeFileAtomic(STATE_PATH, JSON.stringify(state, null, 0));
 }
 
 export async function getAlloSyncState(): Promise<AlloSyncState> {

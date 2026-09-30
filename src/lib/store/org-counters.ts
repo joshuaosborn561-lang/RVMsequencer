@@ -3,8 +3,9 @@ import { getRedis } from "@/lib/db/redis";
 import { HARD_CAP_DAILY_SENDS } from "@/lib/hardening/constants";
 import { getSettings } from "@/lib/store/db";
 import { withStoreLock } from "@/lib/store/lock";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
+import { readJsonFile, writeFileAtomic } from "@/lib/store/atomic-write";
 
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), ".data");
 const COUNTS_PATH = path.join(DATA_DIR, "org-daily.json");
@@ -14,19 +15,16 @@ function utcDateKey(d = new Date()): string {
 }
 
 async function readFileCounts(): Promise<Record<string, number>> {
-  try {
-    return JSON.parse(await readFile(COUNTS_PATH, "utf8")) as Record<
-      string,
-      number
-    >;
-  } catch {
-    return {};
-  }
+  const parsed = await readJsonFile<Record<string, number>>(COUNTS_PATH, {
+    unparseableCode: "org_counters_unparseable",
+  });
+  if (parsed == null) return {};
+  return parsed;
 }
 
 async function writeFileCounts(counts: Record<string, number>) {
   await mkdir(path.dirname(COUNTS_PATH), { recursive: true });
-  await writeFile(COUNTS_PATH, JSON.stringify(counts, null, 2));
+  await writeFileAtomic(COUNTS_PATH, JSON.stringify(counts, null, 2));
 }
 
 export async function getSharedOrgSendsToday(now = new Date()): Promise<number> {

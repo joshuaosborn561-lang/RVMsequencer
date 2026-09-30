@@ -8,6 +8,7 @@ import type { DncScrubber } from "@/lib/dnc/types";
 import type { RvmDeliveryProvider } from "@/lib/providers/types";
 import { pickLine, type PickableLine } from "@/lib/sequencer/line-picker";
 import { evaluateSendWindow, type SendSchedule } from "@/lib/sequencer/send-window";
+import { evaluateMobileGate } from "@/lib/veriphone/gate";
 
 export type AttemptLead = {
   id: string;
@@ -22,6 +23,9 @@ export type AttemptLead = {
   city?: string | null;
   consentStatus: ConsentStatus;
   dnc: boolean;
+  phoneType?: string | null;
+  phoneValid?: boolean | null;
+  phoneVerifiedAt?: string | null;
 };
 export type AttemptCampaign = {
   id: string;
@@ -63,7 +67,9 @@ export type RunAttemptResult =
         | "OUTSIDE_SEND_DAYS"
         | "NO_LINE_CAPACITY"
         | "SCRUB_BLOCKED"
-        | "SUPPRESSED";
+        | "SUPPRESSED"
+        | "NOT_MOBILE"
+        | "PHONE_UNVERIFIED";
       nextEligibleAt?: Date;
       timezone?: string;
       detail?: string;
@@ -78,7 +84,7 @@ export type RunAttemptResult =
 
 /**
  * One sequencer tick:
- * ordered suppress → external scrub → quiet-hours window → line pick → send.
+ * ordered suppress → external scrub → Veriphone mobile gate → quiet-hours window → line pick → send.
  */
 export async function runAttempt(input: {
   lead: AttemptLead;
@@ -139,6 +145,22 @@ export async function runAttempt(input: {
       status: "SKIPPED",
       reason: "SCRUB_BLOCKED",
       detail: scrub.reasons.join(","),
+    };
+  }
+
+  const mobile = await evaluateMobileGate(input.lead.phoneE164, {
+    recorded: {
+      phoneType: input.lead.phoneType,
+      phoneValid: input.lead.phoneValid,
+      phoneVerifiedAt: input.lead.phoneVerifiedAt,
+    },
+    now: input.now,
+  });
+  if (!mobile.allow) {
+    return {
+      status: "SKIPPED",
+      reason: mobile.reason,
+      detail: mobile.detail,
     };
   }
 

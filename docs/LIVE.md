@@ -32,6 +32,7 @@ Add Redis in Railway: **New → Database → Redis**, then variable reference `R
 | `SLYBROADCAST_UID` | Yes (default provider) | Slybroadcast login email |
 | `SLYBROADCAST_PASSWORD` | Yes | Slybroadcast password |
 | `DNC_PROJECT_API_TOKEN` | Recommended | External DNC scrub |
+| `VERIPHONE_API_KEY` | Recommended | Mobile-line gate (veriphone.io). Unset = gate off |
 | `TWILIO_ACCOUNT_SID` | Yes for inbound | Number inventory + webhooks |
 | `TWILIO_AUTH_TOKEN` | Yes for inbound | Signature validation |
 | `CALL_FORWARD_TO_E164` | Yes for callbacks | Your direct line |

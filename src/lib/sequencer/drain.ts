@@ -185,7 +185,22 @@ export async function drainActiveCampaigns(
 
       const sentToday = await countSentToday(campaign.id, now);
       // No campaign-day budget — only per-line dailyCap + this tick's remaining slots
-      const leads = await listLeads(campaign.id);
+      let leads = await listLeads(campaign.id);
+      const { applyVeriphoneToLeads } = await import("@/lib/veriphone/apply");
+      await applyVeriphoneToLeads({
+        campaignId: campaign.id,
+        leads: leads.filter(
+          (l) =>
+            !l.dnc &&
+            l.consentStatus !== "OPTED_OUT" &&
+            (l.status ?? "PENDING") !== "SUPPRESSED" &&
+            (l.status ?? "PENDING") !== "SENT",
+        ),
+        actor: "cron",
+        purpose: "presend",
+        now,
+      });
+      leads = await listLeads(campaign.id);
       const seedPhones = leads
         .filter(
           (l) => l.custom?.isSeed === "true" || Boolean(l.custom?.seedId),
@@ -329,6 +344,9 @@ export async function drainActiveCampaigns(
             city: lead.custom?.city ?? lead.custom?.City ?? null,
             consentStatus: lead.consentStatus,
             dnc: lead.dnc,
+            phoneType: lead.phoneType,
+            phoneValid: lead.phoneValid,
+            phoneVerifiedAt: lead.phoneVerifiedAt,
           },
           campaign: {
             id: campaign.id,
@@ -462,7 +480,8 @@ export async function drainActiveCampaigns(
             result.reason === "DNC" ||
             result.reason === "OPTED_OUT" ||
             result.reason === "SCRUB_BLOCKED" ||
-            result.reason === "SUPPRESSED"
+            result.reason === "SUPPRESSED" ||
+            result.reason === "NOT_MOBILE"
           ) {
             out.suppressed += 1;
             await updateAttempt(attempt.id, {
@@ -484,6 +503,16 @@ export async function drainActiveCampaigns(
               consentStatus:
                 result.reason === "OPTED_OUT" ? "OPTED_OUT" : lead.consentStatus,
               lastError: result.detail ?? result.reason,
+              phoneType:
+                result.reason === "NOT_MOBILE"
+                  ? (result.detail ?? "").replace(/^NOT_MOBILE_VERIPHONE_/, "") ||
+                    lead.phoneType
+                  : lead.phoneType,
+              phoneValid: result.reason === "NOT_MOBILE" ? false : lead.phoneValid,
+              phoneVerifiedAt:
+                result.reason === "NOT_MOBILE"
+                  ? now.toISOString()
+                  : lead.phoneVerifiedAt,
             });
           } else if (result.reason === "NO_LINE_CAPACITY") {
             hitCapacity = true;
@@ -637,7 +666,7 @@ async function injectSeedsIntoActiveCampaigns(now: Date, limit: number) {
         .map((l) => l.phoneE164),
     ];
     if (toAdd.length > 0) {
-      await importLeads(campaign.id, toAdd, { mode: "append" });
+      await importLeads(campaign.id, toAdd, { mode: "append", actor: "cron" });
       const leads = await listLeads(campaign.id);
       await eagerScheduleCampaign({ campaign, leads, now });
       await appendAudit({

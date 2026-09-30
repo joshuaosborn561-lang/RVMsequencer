@@ -59,6 +59,7 @@ Cron: Railway `sequencer-cron` → `POST /api/sequencer/tick` every **5 minutes*
 ```
 Import leads
     → (optional) DNC scrub on import
+    → Veriphone mobile-line gate (when `VERIPHONE_API_KEY` set)
     → if campaign already ACTIVE: eagerScheduleCampaign
 Launch ACTIVE
     → eagerScheduleCampaign: 1 ScheduledSend per lead × step
@@ -68,7 +69,7 @@ Drain
     → advance line warmups (once/UTC day)
     → inject seeds → bump seed runAt to now
     → for each ACTIVE campaign (≤50):
-         lease → claim due rows (seeds first) → runAttempt → advance
+         lease → re-check unverified phones → claim due rows (seeds first) → runAttempt → advance
 Receipt poll (tick, after drain)
     → Slybroadcast `c_option=campaign_result` for accepted sends still Pending/queued
     → settle ~3m, batch cap 40; OK → delivered, Failure → failed
@@ -79,7 +80,7 @@ Webhook rvm-status (same mapping)
 
 ### Eager schedule
 
-- Skip leads: `dnc`, `OPTED_OUT`, `SUPPRESSED`
+- Skip leads: `dnc`, `OPTED_OUT`, `SUPPRESSED` (includes `NOT_MOBILE_VERIPHONE_*`)
 - Step 1 `runAt = now` (+ soft jitter except seeds)
 - Step N>1: `runAt = now + Σ delayDays` (cumulative, ms; + same enqueue jitter)
 - Idempotency key: `{campaignId}_{leadId}_step{N}` — re-schedule is safe
@@ -87,7 +88,7 @@ Webhook rvm-status (same mapping)
 ### Claim → send → advance
 
 1. Claim `PENDING` with `runAt <= now` (Postgres `SKIP LOCKED` or file lock)
-2. Create attempt → `SENDING` → `runAttempt` (all compliance gates)
+2. Create attempt → `SENDING` → `runAttempt` (all compliance gates, including Veriphone when enabled)
 3. Success: scheduled + attempt `SENT`; lead `currentStepPosition` updated; sticky DID stored
 4. Last step → lead `SENT`; else lead stays `PENDING` for later steps
 
@@ -166,6 +167,8 @@ Jitter: applied once when creating the ScheduledSend (~40% of `(windowHours×360
 | Outcome | What happens |
 |---|---|
 | DNC / opt-out / scrub / global suppress | Terminal skip; lead suppressed as appropriate |
+| Veriphone non-mobile (`phone_valid≠true` or `phone_type≠mobile`) | Terminal skip; lead `SUPPRESSED`; reason `NOT_MOBILE_VERIPHONE_<type>` |
+| Veriphone transient / 401 / 402 (gate enabled) | Leave `PENDING` + unverified; **do not send** |
 | Provider fail, attempts &lt; **8** | Exponential backoff `5m × 2^(n−1)`, cap **6h**; reschedule `PENDING` |
 | Attempts ≥ **8** | Lead + scheduled suppressed; later steps cancelled `PRIOR_STEP_MAX_ATTEMPTS` |
 | Hard provider/config error | Auto-pause `PROVIDER_HARD_FAIL` |
@@ -213,13 +216,31 @@ A deposit may leave only if all pass, in order:
 | 5 | Not halted by CALLBACK suppress | YES | `CALLBACK_HALT` |
 | 6 | Attempts today &lt; max (default **2** UTC) | YES | Defer ~6h |
 | 7 | External DNC scrub (when configured) | YES | `SCRUB_BLOCKED` |
-| 8 | Local day in effective `sendDays` | YES | `OUTSIDE_SEND_DAYS` |
-| 9 | Local hour in effective window | YES | `OUTSIDE_SEND_WINDOW` |
-| 10 | Consent if `requireConsent` | CONDITIONAL | `MISSING_CONSENT` |
-| 11 | Eligible line (status, cap, gap, reputation, FCR) | YES | Defer `NO_LINE_CAPACITY` |
-| 12 | Hosted audio URL | YES | `NO_AUDIO_URL` |
+| 8 | Veriphone mobile line (when `VERIPHONE_API_KEY` set) | YES | `NOT_MOBILE` (`NOT_MOBILE_VERIPHONE_<type>`) or defer `PHONE_UNVERIFIED` |
+| 9 | Local day in effective `sendDays` | YES | `OUTSIDE_SEND_DAYS` |
+| 10 | Local hour in effective window | YES | `OUTSIDE_SEND_WINDOW` |
+| 11 | Consent if `requireConsent` | CONDITIONAL | `MISSING_CONSENT` |
+| 12 | Eligible line (status, cap, gap, reputation, FCR) | YES | Defer `NO_LINE_CAPACITY` |
+| 13 | Hosted audio URL | YES | `NO_AUDIO_URL` |
 
-Code: `suppression-order.ts` → scrub → `gates.ts` / `send-window.ts` → `line-picker.ts` → provider.
+Code: `suppression-order.ts` → scrub → **Veriphone** → `gates.ts` / `send-window.ts` → `line-picker.ts` → provider.
+
+### Veriphone mobile-line gate
+
+When `VERIPHONE_API_KEY` is set, no deposit may go to a non-mobile number.
+
+| Rule | HARD? |
+|---|---|
+| Key unset → gate **off** (log + `/api/health` `veriphone.flag=disabled`); existing send behavior | — |
+| Check on ingest (campaign lead add/import, seed inject, any `importLeads` path) | YES |
+| Re-check before claim/dispatch when the lead has no fresh recorded result | YES |
+| Allow only `phone_valid=true` **and** `phone_type=mobile` | YES |
+| Non-mobile → lead `SUPPRESSED` (not DNC), reason `NOT_MOBILE_VERIPHONE_<type>`, audit `SUPPRESSED` | YES |
+| Transient error → retry with backoff; still failing → leave `PENDING` unverified; try next tick; **do not send** | YES |
+| HTTP 401 / 402 → pause verification, `/api/health` `veriphone.flag=paused`, audit `VERIPHONE_PAUSED`; **do not send** unverified | YES |
+| Cache keyed by E.164, 90-day TTL (Prisma `PhoneTypeCache`, file fallback via atomic write) | Soft (credits) |
+
+`<type>` is Veriphone `phone_type` (`fixed_line`, `voip`, `toll_free`, `premium_rate`, `shared_cost`, `unknown`, …) or `invalid` / `unknown` when `phone_valid` is false.
 
 ---
 
@@ -363,6 +384,7 @@ Use this when a **paused** list has confirmed mismatches (wrong trade/lane) and 
 - `requireFcrRegistration` when false (default)
 - `stopOnOptOut` UI flag (STOP always suppresses anyway)
 - Missing `ALLO_API_KEY` (sync off; drops still send)
+- Missing `VERIPHONE_API_KEY` (mobile-line gate off; drops still send)
 - Allo undetermined voicemail rung (keep contact)
 
 ---
@@ -372,6 +394,7 @@ Use this when a **paused** list has confirmed mismatches (wrong trade/lane) and 
 ### Once per workspace
 - [ ] Slybroadcast + Twilio + `NEXT_PUBLIC_APP_URL` + `CRON_SECRET`
 - [ ] `DNC_PROJECT_API_TOKEN` (else internal-only scrub)
+- [ ] `VERIPHONE_API_KEY` (else mobile-line gate off; landlines may be sent)
 - [ ] `CALL_FORWARD_TO_E164` → Allo; DND **off**; dial timeout ≥90; lead caller ID preserved
 - [ ] `ALLO_API_KEY` + Allo tag `do_not_call`
 - [ ] Seeds upserted if canary verification wanted
@@ -428,6 +451,10 @@ Use this when a **paused** list has confirmed mismatches (wrong trade/lane) and 
 | Receipt lookback | 48h | Soft |
 | RECEIPT_HEALTH failure rate | ≥30% with ≥10 samples | Soft (flag only; no auto-pause) |
 | RECEIPT_HEALTH stale Pending | >30m on ≥10 rows this batch | Soft (flag only; no auto-pause) |
+| Veriphone cache TTL | 90 days | Soft (credits) |
+| Veriphone min HTTP gap | 200ms | Soft |
+| Veriphone max ingest lookups | 80 / import | Soft |
+| Veriphone max tick lookups | 30 / campaign | Soft |
 
 ---
 
@@ -439,4 +466,4 @@ Use this when a **paused** list has confirmed mismatches (wrong trade/lane) and 
 4. Never reintroduce a campaign-day volume cap without an explicit canon change.  
 5. Do not change send path, line pool, or campaign status semantics casually — prefer additive gates.
 
-**Code mirrors:** `src/lib/sequencer/*`, `src/lib/store/scheduled.ts`, `src/lib/compliance/*`, `src/lib/allo/*`, `src/lib/warmup/schedule.ts`, `src/lib/hardening/constants.ts`, `src/app/api/sequencer/tick/route.ts`, Twilio inbound + rvm-status webhooks.
+**Code mirrors:** `src/lib/sequencer/*`, `src/lib/store/scheduled.ts`, `src/lib/compliance/*`, `src/lib/veriphone/*`, `src/lib/allo/*`, `src/lib/warmup/schedule.ts`, `src/lib/hardening/constants.ts`, `src/app/api/sequencer/tick/route.ts`, Twilio inbound + rvm-status webhooks.

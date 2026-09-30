@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { postgresEnabled, getPrisma } from "@/lib/db/prisma";
 import { redisEnabled, getRedis } from "@/lib/db/redis";
 import { isAlloSyncConfigured, isAlloSyncEnabled } from "@/lib/allo/client";
+import { getVeriphoneHealth } from "@/lib/veriphone/health";
 
 export async function GET() {
   let postgres: "up" | "down" | "disabled" = "disabled";
@@ -33,6 +34,7 @@ export async function GET() {
     alloSyncEnabled && !alloConfigured
       ? "ALLO_SUPPRESSION_SYNC enabled but ALLO_API_KEY is missing"
       : null;
+  const veriphone = await getVeriphoneHealth();
 
   return NextResponse.json({
     ok: !alloSyncError,
@@ -46,5 +48,6 @@ export async function GET() {
       configured: alloConfigured,
       error: alloSyncError,
     },
+    veriphone,
   });
 }

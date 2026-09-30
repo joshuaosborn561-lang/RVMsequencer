@@ -67,3 +67,18 @@ export const RECEIPT_STALE_PENDING_MS = 30 * 60 * 1000;
 
 /** RECEIPT_HEALTH: stale Pending rows in this tick's batch (flag only). */
 export const RECEIPT_STALE_PENDING_MIN = 10;
+
+/** Veriphone mobile-line cache TTL. */
+export const VERIPHONE_CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
+/** Min gap between Veriphone HTTP lookups (credits + rate). */
+export const VERIPHONE_MIN_INTERVAL_MS = 200;
+
+/** Retry a transient Veriphone failure this many times (plus the first try). */
+export const VERIPHONE_MAX_RETRIES = 3;
+
+/** Max paid lookups during one lead import (rest wait for the next tick). */
+export const VERIPHONE_MAX_INGEST_LOOKUPS = 80;
+
+/** Max paid lookups per campaign per drain tick for unverified leads. */
+export const VERIPHONE_MAX_TICK_LOOKUPS = 30;

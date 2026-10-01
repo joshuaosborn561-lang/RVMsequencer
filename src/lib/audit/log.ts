@@ -19,7 +19,8 @@ export type AuditAction =
   | "FCR_UPDATED"
   | "QUIET_HOURS_APPLIED"
   | "RECEIPT_HEALTH"
-  | "LINE_PROVISIONED";
+  | "LINE_PROVISIONED"
+  | "VERIPHONE_PAUSED";
 
 export type AuditEvent = {
   id: string;

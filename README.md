@@ -46,7 +46,8 @@ pnpm build
 
 ```
 CSV / API leads
-  → DNC scrub + local send window
+  → DNC scrub + Veriphone mobile-line gate (when VERIPHONE_API_KEY is set)
+  → local send window
   → Twilio line pick (sticky / weighted)
   → Slybroadcast (audio URL + c_callerID = DID)
   → webhook → attempt ledger
@@ -60,8 +61,10 @@ Also: `POST /api/scrub`, `GET /api/timezone?phone=`, MCP tools for all of the ab
 ```
 POST /api/sequencer/tick
   → reconcile stale SENDING + campaign leases
+  → re-check unverified phones (Veriphone, when enabled)
   → claim due leads (attempt ledger + org/ramp caps)
   → global suppression + DNC scrub
+  → Veriphone mobile-line gate (when VERIPHONE_API_KEY is set)
   → recipient-local send window + send jitter
   → line picker (min gap + sticky + weighted)
   → Slybroadcast (hosted audio URL + c_callerID)
@@ -74,4 +77,18 @@ Hardening: **`docs/HARDENING.md`**. Go-live checklist: **`docs/LIVE.md`**. Resea
 
 ## Compliance
 
-FCC 22-85: ringless voicemail to wireless phones is a TCPA “call.” Product default is **soft consent** (cold-call style) with **hard DNC + recipient-local send windows**. Operators are responsible for their own compliance posture.
+FCC 22-85: ringless voicemail to wireless phones is a TCPA “call.” Product default is **soft consent** (cold-call style) with **hard DNC + recipient-local send windows**. When `VERIPHONE_API_KEY` is set, the app also **refuses non-mobile numbers** (landline / VoIP / toll-free / invalid) so a drop never goes to a line with no mobile voicemail. Operators are responsible for their own compliance posture.
+
+### Veriphone mobile-line gate
+
+| | |
+|---|---|
+| Env | `VERIPHONE_API_KEY` — set in Railway; never commit a key |
+| Off | Key unset → gate disabled (log + `GET /api/health` `veriphone.flag=disabled`). Sends are unchanged |
+| On | Every lead is checked on ingest (`importLeads` / CSV / API / seed inject) and again before claim/dispatch if there is no fresh recorded result |
+| Allow | Only `phone_valid=true` and `phone_type=mobile` |
+| Block | Lead `SUPPRESSED`, reason `NOT_MOBILE_VERIPHONE_<type>` (e.g. `NOT_MOBILE_VERIPHONE_fixed_line`), audit entry. Not marked DNC |
+| Errors | Transient → retry with backoff; still failing → leave `PENDING` unverified and try next tick (**do not send**). HTTP 401/402 → pause (`veriphone.flag=paused`, audit `VERIPHONE_PAUSED`) and do not send unverified |
+| Cache | E.164 → type, 90-day TTL (Postgres `PhoneTypeCache` when `DATABASE_URL` is set; otherwise atomic file `.data/phone-type-cache.json`) |
+
+`pnpm verify` includes `scripts/verify-veriphone.ts`.

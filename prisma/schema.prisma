@@ -468,3 +468,18 @@ model OrgDailyCounter {
   sends   Int    @default(0)
   updatedAt DateTime @updatedAt
 }
+
+/// Veriphone line-type cache keyed by E.164 (90-day TTL in app code).
+model PhoneTypeCache {
+  e164       String   @id
+  phoneValid Boolean
+  phoneType  String
+  carrier    String?
+  country    String?
+  checkedAt  DateTime
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([expiresAt])
+}

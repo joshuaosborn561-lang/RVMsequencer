@@ -12,6 +12,7 @@ Short answer: **API keys + Railway (HTTPS + Postgres + cron)**. Default deposit 
 | **Slybroadcast** | `SLYBROADCAST_UID`, `SLYBROADCAST_PASSWORD` | RVM deposit + explicit CID | Falls back to mock |
 | **Hosted audio** | Campaign `audioUrl` | Public WAV/MP3 ≥5s | Launch blocked |
 | **The DNC Project** | `DNC_PROJECT_API_TOKEN` | Scrub | Dev mock only |
+| **Veriphone** | `VERIPHONE_API_KEY` | Mobile-line gate (block landline/VoIP) | Gate off; landlines may be sent |
 | **Twilio** | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | Lines + inbound callbacks | Demo pool only |
 | **Forward** | `CALL_FORWARD_TO_E164` | Dial after inbound | Voice says unavailable |
 | **App URL** | `NEXT_PUBLIC_APP_URL` | Webhooks | Local-only |

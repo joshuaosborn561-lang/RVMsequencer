@@ -130,6 +130,12 @@ export type LeadRecord = {
   lastError?: string;
   providerMessageId?: string;
   suppressReason?: string;
+  /** Veriphone phone_type when the mobile-line gate recorded a result. */
+  phoneType?: string;
+  /** Veriphone phone_valid when the mobile-line gate recorded a result. */
+  phoneValid?: boolean;
+  /** ISO timestamp of the last Veriphone result persisted on this lead. */
+  phoneVerifiedAt?: string;
   /** Sticky line for follow-ups (Warmbly / cold-cli pattern). */
   stickyLineId?: string;
   /** Current / last completed sequence step position. */

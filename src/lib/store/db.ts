@@ -471,11 +471,14 @@ export async function importLeads(
     | "lastError"
     | "providerMessageId"
     | "suppressReason"
+    | "phoneType"
+    | "phoneValid"
+    | "phoneVerifiedAt"
     | "stickyLineId"
   >[],
-  opts?: { mode?: "append" | "replace" },
+  opts?: { mode?: "append" | "replace"; actor?: AuditEventRecord["actor"] },
 ): Promise<{ imported: number; duplicates: number; replaced: number }> {
-  return mutateStore((store) => {
+  const result = await mutateStore((store) => {
     const mode = opts?.mode ?? "append";
     let replaced = 0;
     if (mode === "replace") {
@@ -492,6 +495,7 @@ export async function importLeads(
     const now = new Date().toISOString();
     let imported = 0;
     let duplicates = 0;
+    const created: LeadRecord[] = [];
     for (const lead of leads) {
       if (existingPhones.has(lead.phoneE164)) {
         duplicates += 1;
@@ -499,7 +503,7 @@ export async function importLeads(
       }
       existingPhones.add(lead.phoneE164);
       const blocked = lead.dnc || suppressed.has(lead.phoneE164);
-      store.leads.push({
+      const row: LeadRecord = {
         ...lead,
         id: `lead_${randomUUID().slice(0, 8)}`,
         campaignId,
@@ -512,11 +516,29 @@ export async function importLeads(
             : "GLOBAL_SUPPRESSION"
           : undefined,
         dnc: blocked,
-      });
+      };
+      store.leads.push(row);
+      created.push(normalizeLead(row));
       imported += 1;
     }
-    return { imported, duplicates, replaced };
+    return { imported, duplicates, replaced, created };
   });
+
+  if (result.created.length > 0) {
+    const { applyVeriphoneToLeads } = await import("@/lib/veriphone/apply");
+    await applyVeriphoneToLeads({
+      campaignId,
+      leads: result.created,
+      actor: opts?.actor ?? "api",
+      purpose: "ingest",
+    });
+  }
+
+  return {
+    imported: result.imported,
+    duplicates: result.duplicates,
+    replaced: result.replaced,
+  };
 }
 
 function leadIsDue(lead: LeadRecord, now: Date): boolean {

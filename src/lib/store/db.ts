@@ -13,7 +13,7 @@ import {
   DEFAULT_SEND_WINDOW_START,
   HARD_CAP_DAILY_SENDS,
 } from "@/lib/hardening/constants";
-import { createAuditEvent } from "@/lib/audit/log";
+import { createAuditEvent, type AuditEvent } from "@/lib/audit/log";
 import { demoLines } from "@/lib/demo/data";
 import { dailyCapForWarmupDay, suggestLineStatus } from "@/lib/warmup/schedule";
 import { withStoreLock } from "./lock";
@@ -476,7 +476,7 @@ export async function importLeads(
     | "phoneVerifiedAt"
     | "stickyLineId"
   >[],
-  opts?: { mode?: "append" | "replace"; actor?: AuditEventRecord["actor"] },
+  opts?: { mode?: "append" | "replace"; actor?: AuditEvent["actor"] },
 ): Promise<{ imported: number; duplicates: number; replaced: number }> {
   const result = await mutateStore((store) => {
     const mode = opts?.mode ?? "append";
@@ -526,10 +526,11 @@ export async function importLeads(
 
   if (result.created.length > 0) {
     const { applyVeriphoneToLeads } = await import("@/lib/veriphone/apply");
+    const actor: AuditEvent["actor"] = opts?.actor ?? "api";
     await applyVeriphoneToLeads({
       campaignId,
       leads: result.created,
-      actor: opts?.actor ?? "api",
+      actor,
       purpose: "ingest",
     });
   }

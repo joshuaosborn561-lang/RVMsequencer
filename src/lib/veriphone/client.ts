@@ -115,6 +115,8 @@ export async function lookupVeriphone(
   const url = new URL(VERIPHONE_VERIFY_URL);
   url.searchParams.set("phone", phoneE164);
   url.searchParams.set("key", key);
+  // Live porting-registry line type (10 credits/lookup).
+  url.searchParams.set("mode", "current");
 
   let lastMessage = "veriphone_request_failed";
   for (let attempt = 0; attempt <= VERIPHONE_MAX_RETRIES; attempt++) {
